@@ -1,0 +1,13 @@
+[build]
+  base    = "frontend"
+  command = "yarn install && yarn expo export --platform web"
+  publish = "frontend/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Expo Router is a SPA — rewrite every path to index.html so deep links work
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
