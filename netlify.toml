@@ -1,7 +1,7 @@
 [build]
   base    = "frontend"
   command = "yarn install && yarn expo export --platform web"
-  publish = "frontend/dist"
+  publish = "dist"
 
 [build.environment]
   NODE_VERSION = "20"
