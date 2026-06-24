@@ -1,0 +1,157 @@
+{
+  "app_name": "Iminationz POS",
+  "personality": "6 Glass / Luxe DARK (optimized for high-speed POS utility)",
+  "personality_one_liner": "A sophisticated, high-contrast command center that blends premium jewellery aesthetics with lightning-fast counter billing functionality.",
+  "color": {
+    "surface": "#0D0D0D",
+    "onSurface": "#FDFBF7",
+    "surfaceSecondary": "#1A1A1A",
+    "onSurfaceSecondary": "#EAE6DF",
+    "surfaceTertiary": "#262626",
+    "onSurfaceTertiary": "#C0BCB5",
+    "surfaceInverse": "#FDFBF7",
+    "onSurfaceInverse": "#0D0D0D",
+    "brand": "#C5A059",
+    "brandPrimary": "#D4AF37",
+    "onBrandPrimary": "#1A1500",
+    "brandSecondary": "#AA8743",
+    "onBrandSecondary": "#FDFBF7",
+    "brandTertiary": "#3D3318",
+    "onBrandTertiary": "#E8C87F",
+    "success": "#2E8B57",
+    "onSuccess": "#E0F4E8",
+    "warning": "#E6A23C",
+    "onWarning": "#2B1D0B",
+    "error": "#9B111E",
+    "onError": "#FBECEE",
+    "info": "#5C6B73",
+    "onInfo": "#E6EBED",
+    "border": "#2E2E2E",
+    "borderStrong": "#4A4A4A",
+    "divider": "#242424"
+  },
+  "typography": {
+    "displayFontFamily": "Space Grotesk",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous touch targets (>=48px) for POS speed. Use 'lg' padding for tabular rows and 'xl' for sticky action areas.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 16,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use blur on sticky headers, bottom tab bar, and the persistent payment panel in Billing.",
+      "Use translucent tinted backgrounds (brandTertiary at 70% opacity) behind text overlaid on images."
+    ],
+    "dont's": [
+      "Never blur dense tabular data or form inputs.",
+      "Avoid glass on standard list items."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Dashboard",
+      "purpose": "High-level overview of daily performance and critical alerts.",
+      "states": {
+        "loading": "Centered brand-colored spinner.",
+        "empty": "No data for today yet - start billing.",
+        "error": "Failed to load dashboard data."
+      },
+      "layout": "Grid of 6 KPI cards using 'surfaceSecondary' with 'brandTertiary' subtle borders. Today's Sales card is featured larger with 'brandPrimary' text. Keep typography large (2xl) for numeric values using Space Grotesk."
+    },
+    {
+      "name": "Billing",
+      "purpose": "Lightning-fast counter billing (30-60 sec completion).",
+      "states": {
+        "loading": "Skeleton rows for item list.",
+        "empty": "Illustration of empty cart with 'Add items to begin bill'.",
+        "error": "Failed to complete transaction."
+      },
+      "layout": "Top section: Customer mobile input field. Middle: Dropdown picker for items, qty input, and a tabular list of added items (Item Name, Qty, Price, Remove). Bottom: Sticky glassmorphic panel containing Gross Amount, Auto 10% Discount tag (if >699), Cash/UPI split inputs (allowing negative UPI for change), and a massive 'Complete Bill' pill button."
+    },
+    {
+      "name": "Inventory",
+      "purpose": "Manage product catalog and track stock levels.",
+      "states": {
+        "loading": "Skeleton grid.",
+        "empty": "Illustration of empty shelf. 'Add your first product'.",
+        "error": "Failed to load inventory."
+      },
+      "layout": "Header with search bar and horizontal scrolling category filter chips. Main view: List of items. Items with qty <= 5 have a prominent red 'error' surface badge. Floating action button (FAB) for adding new items using 'brandPrimary'."
+    },
+    {
+      "name": "Sales History",
+      "purpose": "Review past bills and check payment statuses.",
+      "states": {
+        "loading": "Skeleton list.",
+        "empty": "No sales found for the selected period.",
+        "error": "Failed to load history."
+      },
+      "layout": "Sticky horizontal filter row (Today, Yesterday, Month, Custom) below header. List of bills showing Bill ID, Time, Customer Mobile, Amount, and a strict PAID/DRAFT status badge (success/error tokens)."
+    },
+    {
+      "name": "Invoice Preview",
+      "purpose": "Digital receipt view for sharing or printing.",
+      "states": {
+        "loading": "Spinner.",
+        "empty": "N/A",
+        "error": "Failed to generate invoice."
+      },
+      "layout": "Modal view. Uses 'surfaceInverse' (white) background with 'onSurfaceInverse' (black) text to simulate real paper receipts. Monospace or highly tabular layout for line items. Share/Print buttons sticky at bottom."
+    }
+  ],
+  "images": {
+    "login_hero": {
+      "url": "https://images.pexels.com/photos/12197169/pexels-photo-12197169.jpeg",
+      "alt": "Abstract luxury gold and black texture"
+    },
+    "empty_state_jewellery": {
+      "url": "https://images.pexels.com/photos/9551116/pexels-photo-9551116.jpeg",
+      "alt": "Gold necklace on dark reflective background"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Dark-First Luxe palette: midnight black/obsidian surfaces with antique gold accents. Do NOT use any blue or purple.",
+    "Implement the sticky CTA pattern for the Billing screen's payment panel. The Gross Amount, Cash/UPI split inputs, and 'Complete Bill' button MUST be in a sticky bottom view with glassmorphism, ensuring they are always reachable without scrolling.",
+    "Typography: Use Space Grotesk for all numeric values (prices, quantities, KPIs) to ensure readability and a POS command-center feel. Use Geist for standard labels.",
+    "Apply a 10% auto-discount rule in the Billing flow if the cart total exceeds ₹699.",
+    "In the Billing flow, ensure the UPI input can handle negative values to explicitly show change returned to the customer.",
+    "Inventory low stock: Apply the red `error` badge to any item where quantity is <= 5.",
+    "Invoice Preview screen MUST use the `surfaceInverse` (white) background so it actually looks like a printable receipt."
+  ]
+}
