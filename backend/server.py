@@ -120,14 +120,15 @@ async def list_inventory(_: bool = Depends(require_auth)):
 
 @api_router.post("/inventory", response_model=InventoryItem)
 async def create_inventory(payload: InventoryCreate, _: bool = Depends(require_auth)):
-    existing = await db.inventory.find_one({"item_id": payload.item_id}, {"_id": 0})
+    normalized_item_id = payload.item_id.strip().upper()
+    existing = await db.inventory.find_one({"item_id": normalized_item_id}, {"_id": 0})
     if existing:
         raise HTTPException(status_code=400, detail="Item ID already exists")
     now = now_ist()
     current_qty = payload.current_qty if payload.current_qty is not None else payload.opening_qty
     doc = {
         "id": str(uuid.uuid4()),
-        "item_id": payload.item_id.strip().upper(),
+        "item_id": normalized_item_id,
         "category": payload.category.strip(),
         "item_name": payload.item_name.strip(),
         "price": float(payload.price),
