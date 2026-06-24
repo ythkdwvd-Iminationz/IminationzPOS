@@ -12,12 +12,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { api, getToken, setToken } from "@/src/api/client";
+import { api, getSession } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 export default function LoginScreen() {
   const router = useRouter();
-  const [username, setUsername] = useState("admin");
+  const [email, setEmail] = useState("admin@iminationz.app");
   const [password, setPassword] = useState("admin123");
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -25,8 +25,8 @@ export default function LoginScreen() {
 
   useEffect(() => {
     (async () => {
-      const tok = await getToken();
-      if (tok) router.replace("/(tabs)/dashboard");
+      const s = await getSession();
+      if (s) router.replace("/(tabs)/dashboard");
       else setChecking(false);
     })();
   }, [router]);
@@ -35,8 +35,7 @@ export default function LoginScreen() {
     setError(null);
     setLoading(true);
     try {
-      const res = await api.login(username.trim(), password);
-      await setToken(res.token);
+      await api.login(email.trim(), password);
       router.replace("/(tabs)/dashboard");
     } catch (e: any) {
       setError(e.message || "Login failed");
@@ -65,17 +64,18 @@ export default function LoginScreen() {
               <Ionicons name="diamond" size={42} color={theme.color.brandPrimary} />
             </View>
             <Text style={styles.brandName}>Iminationz</Text>
-            <Text style={styles.brandSub}>Jewellery POS System</Text>
+            <Text style={styles.brandSub}>Jewellery POS · Supabase</Text>
           </View>
 
           <View style={styles.form}>
-            <Text style={styles.label}>Username</Text>
+            <Text style={styles.label}>Email</Text>
             <TextInput
               testID="login-username-input"
-              value={username}
-              onChangeText={setUsername}
+              value={email}
+              onChangeText={setEmail}
               autoCapitalize="none"
-              placeholder="admin"
+              keyboardType="email-address"
+              placeholder="admin@iminationz.app"
               placeholderTextColor={theme.color.onSurfaceTertiary}
               style={styles.input}
             />
@@ -113,7 +113,7 @@ export default function LoginScreen() {
               )}
             </Pressable>
 
-            <Text style={styles.hint}>Default: admin / admin123</Text>
+            <Text style={styles.hint}>Default: admin@iminationz.app / admin123</Text>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -126,63 +126,30 @@ const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: theme.spacing.xl, justifyContent: "center" },
   brand: { alignItems: "center", marginBottom: theme.spacing.xxxl },
   logoCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 88, height: 88, borderRadius: 44,
     backgroundColor: theme.color.brandTertiary,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: "center", justifyContent: "center",
     marginBottom: theme.spacing.lg,
-    borderWidth: 1,
-    borderColor: theme.color.brandPrimary,
+    borderWidth: 1, borderColor: theme.color.brandPrimary,
   },
-  brandName: {
-    fontSize: 30,
-    color: theme.color.onSurface,
-    fontWeight: "700",
-    letterSpacing: 1,
-  },
+  brandName: { fontSize: 30, color: theme.color.onSurface, fontWeight: "700", letterSpacing: 1 },
   brandSub: { fontSize: 13, color: theme.color.onSurfaceTertiary, marginTop: 4 },
   form: { gap: 4 },
-  label: {
-    fontSize: 12,
-    color: theme.color.onSurfaceTertiary,
-    marginBottom: 6,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-  },
+  label: { fontSize: 12, color: theme.color.onSurfaceTertiary, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 },
   input: {
     backgroundColor: theme.color.surfaceSecondary,
-    borderColor: theme.color.border,
-    borderWidth: 1,
+    borderColor: theme.color.border, borderWidth: 1,
     borderRadius: theme.radius.md,
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: 14,
-    color: theme.color.onSurface,
-    fontSize: 16,
+    paddingHorizontal: theme.spacing.lg, paddingVertical: 14,
+    color: theme.color.onSurface, fontSize: 16,
   },
   button: {
     backgroundColor: theme.color.brandPrimary,
     borderRadius: theme.radius.md,
-    paddingVertical: 16,
-    alignItems: "center",
+    paddingVertical: 16, alignItems: "center",
     marginTop: theme.spacing.xl,
   },
-  buttonText: {
-    color: theme.color.onBrandPrimary,
-    fontWeight: "700",
-    fontSize: 16,
-    letterSpacing: 0.5,
-  },
-  error: {
-    color: theme.color.error,
-    marginTop: theme.spacing.md,
-    fontSize: 13,
-  },
-  hint: {
-    color: theme.color.onSurfaceTertiary,
-    fontSize: 12,
-    textAlign: "center",
-    marginTop: theme.spacing.lg,
-  },
+  buttonText: { color: theme.color.onBrandPrimary, fontWeight: "700", fontSize: 16, letterSpacing: 0.5 },
+  error: { color: theme.color.error, marginTop: theme.spacing.md, fontSize: 13 },
+  hint: { color: theme.color.onSurfaceTertiary, fontSize: 12, textAlign: "center", marginTop: theme.spacing.lg },
 });

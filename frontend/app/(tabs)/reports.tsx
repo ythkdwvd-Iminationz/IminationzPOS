@@ -21,6 +21,12 @@ import {
   WhatsAppClosing,
 } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
+import {
+  exportSalesCsv,
+  exportSalesXlsx,
+  exportInventoryCsv,
+  exportInventoryXlsx,
+} from "@/src/utils/export";
 
 export default function ReportsScreen() {
   const [daily, setDaily] = useState<DailyReport | null>(null);
@@ -81,11 +87,13 @@ export default function ReportsScreen() {
   };
 
   const openExport = async (kind: "sales" | "inventory", ext: "xlsx" | "csv") => {
-    const url = await api.exportUrl(`/exports/${kind}.${ext}`, kind === "sales" ? { filter: "month" } : {});
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined") window.open(url, "_blank");
-    } else {
-      Linking.openURL(url);
+    try {
+      if (kind === "sales" && ext === "xlsx") await exportSalesXlsx("month");
+      else if (kind === "sales" && ext === "csv") await exportSalesCsv("month");
+      else if (kind === "inventory" && ext === "xlsx") await exportInventoryXlsx();
+      else if (kind === "inventory" && ext === "csv") await exportInventoryCsv();
+    } catch (e) {
+      console.warn("Export failed", e);
     }
   };
 

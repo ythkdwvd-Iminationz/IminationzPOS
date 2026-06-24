@@ -1,44 +1,57 @@
-# Iminationz Jewellery POS — PRD
+# Iminationz POS — PRD (Supabase build)
 
 ## Overview
-Iminationz POS is a mobile-first Expo (React Native) point-of-sale app for a retail jewellery store and pop-up stall. Optimized for counter billing (30–60 seconds per bill), single-admin use, currency ₹ (INR).
+Iminationz POS is a mobile-first Expo (React Native) point-of-sale app for a retail jewellery store + pop-up stall. All data and business logic now live in **Supabase Postgres**; there is **no FastAPI backend**.
 
 ## Stack
-- Frontend: Expo Router (React Native), TypeScript
-- Backend: FastAPI + Motor (MongoDB)
-- Auth: Simple admin username/password (admin/admin123), bearer token
+- **Frontend:** Expo Router (React Native), TypeScript, `@supabase/supabase-js`
+- **Database & Auth:** Supabase (Postgres + Auth)
+- **Storage:** none (invoices rendered on-screen; reports exported as XLSX/CSV from client)
 
-## Features
-- **Admin login** (admin/admin123)
-- **Dashboard**: Today's sales hero card + KPI grid (Cash, UPI, Items sold, Discount, Stock Qty, Low-stock count). Quick "New Bill" CTA & seed button when empty.
-- **Billing (POS-style)**: customer mobile (optional), Add Item modal with search, qty +/- with stock validation (no overselling), auto gross/discount (10% if gross > ₹699), final amount, split Cash/UPI inputs (negative UPI allowed for change return), live PAID/DRAFT status badge, Complete Bill button enabled only when Cash + UPI == Final.
-- **Inventory**: Add/Edit/Delete, search, horizontal scrollable category chips, red "Low Stock" badge when qty ≤ 5.
-- **Sales History**: filters (Today / Yesterday / Month / All), search by bill no or mobile, opens invoice on tap.
-- **Reports**: Daily sales summary + Inventory summary + Low Stock list.
-- **Invoice**: Printable receipt-style screen (white background), share/PDF, print (web window.print).
-- **Bill locking**: bills are persisted with status PAID and no edit endpoints exist (read-only by design).
-- **Atomic inventory deduction**: $inc with conditional `current_qty >= qty` guard prevents oversell. Rolls back on partial failure.
+## Project Layout
+```
+/app
+├── frontend/         # Expo app
+│   └── src/
+│       ├── api/
+│       │   ├── supabase.ts   # client init
+│       │   └── client.ts     # api.* surface (auth, RPC, queries)
+│       └── utils/
+│           └── export.ts     # client-side XLSX/CSV exports
+├── supabase/
+│   ├── schema.sql                  # full schema + RLS + RPC
+│   └── migration/
+│       └── import_data.sql         # 10 inventory + 14 bills seed from old build
+├── memory/
+│   ├── PRD.md                      # ← this file
+│   ├── SUPABASE_SETUP.md           # step-by-step setup guide
+│   └── test_credentials.md
+└── backend/         # ⚠ tombstone stub (decommissioned)
+```
 
-## API (prefix `/api`)
-| Method | Path | Description |
-| --- | --- | --- |
-| POST | `/auth/login` | username + password → token |
-| GET / POST / PUT / DELETE | `/inventory[/{id}]` | CRUD inventory |
-| POST | `/bills` | create bill (validates stock, deducts inventory) |
-| GET | `/bills` | list with filter (today/yesterday/month/custom/all) + search |
-| GET | `/bills/{id}` | fetch single bill |
-| GET | `/dashboard/today` | KPI snapshot |
-| GET | `/reports/daily?date=YYYY-MM-DD` | daily report |
-| GET | `/reports/inventory` | inventory report (incl. low stock list) |
-| POST | `/seed` | seed 10 sample items (idempotent) |
+## Features Preserved
+- Admin login (Supabase email/password) — `admin@iminationz.app` / `admin123`
+- Dashboard KPI cards (sales, cash, UPI, bills, inventory, low stock)
+- POS-style Billing with customer name + mobile, customer recognition badge
+- Inventory CRUD with cost price + low-stock badge
+- Atomic stock deduction via Postgres `create_bill` RPC (single transaction)
+- Discount rule: **10% above ₹699** (unchanged)
+- Split Cash + UPI with **negative UPI for change return**
+- Bill numbering `BILL-YYYYMMDD-NNN`
+- Sales History with date filters and search
+- Reports — daily + category profit (uses cost price)
+- WhatsApp Daily Closing — pre-filled `wa.me` links for both owners (9044625875 / 8188996721)
+- Excel + CSV exports — generated client-side, open natively in Excel
+- Bills are read-only after PAID (no edit endpoints exist)
 
-## Discount Rule
-`if gross > 699 → discount = 10% of gross`, else 0. Applied automatically on bill create.
+## Setup (one-time)
+See `/app/memory/SUPABASE_SETUP.md`. TL;DR:
+1. Paste `/app/supabase/schema.sql` into the Supabase SQL Editor → Run.
+2. Auth → Users → Create user `admin@iminationz.app` / `admin123` (auto-confirm).
+3. (Optional) Paste `/app/supabase/migration/import_data.sql` to restore the 10+14 records from the legacy build.
 
-## Payment Validation
-`cash_amount + upi_amount` must equal `final_amount` (tolerance 0.01). UPI can be negative (change returned via UPI).
-
-## Out of scope (this iteration)
-- Multi-user / role-based auth
-- Cloud printing / actual PDF generation (uses native Share + window.print fallback)
-- CSV export (visible in Reports UI but not yet generated as a file)
+## Security Model
+- The client uses **only** the anon public key (in `/app/frontend/.env`).
+- Row Level Security: `to authenticated using (true)` on all tables — signed-in admin has full CRUD, anonymous users have none.
+- The `create_bill` RPC runs `security invoker` and re-validates stock with a conditional `UPDATE … WHERE current_qty >= qty`, so a malicious client cannot induce negative stock.
+- `service_role` key is **never** stored in this repo; the user runs migration SQL themselves.
