@@ -67,6 +67,22 @@ export const api = {
   dailyReport: (date?: string) =>
     request<DailyReport>(`/reports/daily${date ? `?date=${date}` : ""}`),
   inventoryReport: () => request<InventoryReport>("/reports/inventory"),
+  categoryReport: () => request<{ rows: CategoryRow[] }>("/reports/category"),
+
+  // Customer
+  lookupCustomer: (mobile: string) =>
+    request<CustomerInfo>(`/customers/${encodeURIComponent(mobile)}`),
+
+  // WhatsApp
+  whatsappClosing: (date?: string) =>
+    request<WhatsAppClosing>(`/whatsapp/closing${date ? `?date=${date}` : ""}`),
+
+  // Exports (return absolute URL with token in query for direct download via Linking)
+  exportUrl: async (path: string, params: Record<string, string> = {}) => {
+    const token = await getToken();
+    const qs = new URLSearchParams({ ...params }).toString();
+    return `${BASE_URL}/api${path}${qs ? `?${qs}` : ""}${qs ? "&" : "?"}_t=${encodeURIComponent(token || "")}`;
+  },
 
   seed: () => request<{ seeded: boolean }>("/seed", { method: "POST" }),
 };
@@ -77,6 +93,7 @@ export interface InventoryItem {
   category: string;
   item_name: string;
   price: number;
+  cost_price: number;
   opening_qty: number;
   current_qty: number;
   sold_qty: number;
@@ -97,6 +114,7 @@ export interface Bill {
   id: string;
   bill_number: string;
   customer_mobile: string | null;
+  customer_name?: string | null;
   date: string;
   day: string;
   time: string;
@@ -108,6 +126,31 @@ export interface Bill {
   cash_amount: number;
   upi_amount: number;
   payment_status: string;
+}
+
+export interface CustomerInfo {
+  mobile: string;
+  is_returning: boolean;
+  visits: number;
+  total_spent: number;
+  last_visit: string | null;
+  last_name: string | null;
+}
+
+export interface CategoryRow {
+  category: string;
+  qty_sold: number;
+  revenue: number;
+  cost: number;
+  profit: number;
+  margin_pct: number;
+}
+
+export interface WhatsAppClosing {
+  date: string;
+  message: string;
+  owner_numbers: string[];
+  links: { number: string; url: string }[];
 }
 
 export interface DashboardData {

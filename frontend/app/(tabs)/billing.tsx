@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, InventoryItem } from "@/src/api/client";
+import { api, InventoryItem, CustomerInfo } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 
 interface CartLine {
@@ -29,6 +29,8 @@ export default function BillingScreen() {
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerMobile, setCustomerMobile] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null);
   const [cashAmount, setCashAmount] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -132,9 +134,28 @@ export default function BillingScreen() {
   const reset = () => {
     setCart([]);
     setCustomerMobile("");
+    setCustomerName("");
+    setCustomerInfo(null);
     setCashAmount("");
     setUpiAmount("");
     setError(null);
+  };
+
+  const onMobileBlur = async () => {
+    const mobile = customerMobile.trim();
+    if (!mobile || mobile.length < 6) {
+      setCustomerInfo(null);
+      return;
+    }
+    try {
+      const info = await api.lookupCustomer(mobile);
+      setCustomerInfo(info);
+      if (info.is_returning && info.last_name && !customerName.trim()) {
+        setCustomerName(info.last_name);
+      }
+    } catch {
+      setCustomerInfo(null);
+    }
   };
 
   const submit = async () => {
@@ -147,6 +168,7 @@ export default function BillingScreen() {
     try {
       const bill = await api.createBill({
         customer_mobile: customerMobile.trim() || null,
+        customer_name: customerName.trim() || null,
         cash_amount: parseFloat(cashAmount || "0") || 0,
         upi_amount: parseFloat(upiAmount || "0") || 0,
         items: cart.map((l) => ({
@@ -199,11 +221,31 @@ export default function BillingScreen() {
             testID="customer-mobile-input"
             value={customerMobile}
             onChangeText={setCustomerMobile}
+            onBlur={onMobileBlur}
             keyboardType="phone-pad"
             placeholder="10-digit mobile"
             placeholderTextColor={theme.color.onSurfaceTertiary}
             style={styles.input}
             maxLength={15}
+          />
+
+          {customerInfo?.is_returning && (
+            <View testID="returning-customer-badge" style={styles.returningBadge}>
+              <Ionicons name="star" size={14} color={theme.color.brandPrimary} />
+              <Text style={styles.returningText}>
+                Returning · {customerInfo.visits} visits · {formatINRPlain(customerInfo.total_spent)} lifetime
+              </Text>
+            </View>
+          )}
+
+          <Text style={[styles.label, { marginTop: theme.spacing.md }]}>Customer Name (optional)</Text>
+          <TextInput
+            testID="customer-name-input"
+            value={customerName}
+            onChangeText={setCustomerName}
+            placeholder="e.g. Riya Sharma"
+            placeholderTextColor={theme.color.onSurfaceTertiary}
+            style={styles.input}
           />
 
           <Pressable
@@ -580,6 +622,20 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
   },
   completeText: { color: theme.color.onBrandPrimary, fontWeight: "800", fontSize: 16 },
+  returningBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: theme.color.brandTertiary,
+    borderColor: theme.color.brandPrimary,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: theme.radius.md,
+    marginTop: theme.spacing.sm,
+    alignSelf: "flex-start",
+  },
+  returningText: { color: theme.color.brandPrimary, fontSize: 12, fontWeight: "700" },
 
   modalBackdrop: {
     flex: 1,

@@ -24,6 +24,7 @@ interface FormState {
   category: string;
   item_name: string;
   price: string;
+  cost_price: string;
   opening_qty: string;
   current_qty: string;
 }
@@ -33,6 +34,7 @@ const EMPTY: FormState = {
   category: "",
   item_name: "",
   price: "",
+  cost_price: "",
   opening_qty: "",
   current_qty: "",
 };
@@ -93,6 +95,7 @@ export default function InventoryScreen() {
       category: it.category,
       item_name: it.item_name,
       price: String(it.price),
+      cost_price: String(it.cost_price || 0),
       opening_qty: String(it.opening_qty),
       current_qty: String(it.current_qty),
     });
@@ -113,6 +116,7 @@ export default function InventoryScreen() {
           category: form.category,
           item_name: form.item_name,
           price: parseFloat(form.price),
+          cost_price: parseFloat(form.cost_price || "0") || 0,
           opening_qty: parseInt(form.opening_qty || "0", 10),
           current_qty: parseInt(form.current_qty || form.opening_qty, 10),
         });
@@ -122,6 +126,7 @@ export default function InventoryScreen() {
           category: form.category,
           item_name: form.item_name,
           price: parseFloat(form.price),
+          cost_price: parseFloat(form.cost_price || "0") || 0,
           opening_qty: parseInt(form.opening_qty || "0", 10),
           current_qty: parseInt(form.current_qty || form.opening_qty, 10),
         });
@@ -228,6 +233,7 @@ export default function InventoryScreen() {
                   </View>
                   <Text style={styles.rowSub}>
                     {item.category} · {item.item_id} · {formatINRPlain(item.price)}
+                    {item.cost_price > 0 ? ` · cost ${formatINRPlain(item.cost_price)}` : ""}
                   </Text>
                   <Text style={styles.rowQty}>
                     Stock {item.current_qty} / {item.opening_qty} · Sold {item.sold_qty}
@@ -288,6 +294,13 @@ export default function InventoryScreen() {
                   value={form.price}
                   onChangeText={(v) => setForm({ ...form, price: v })}
                   testID="form-price"
+                  keyboardType="decimal-pad"
+                />
+                <Field
+                  label="Cost Price (₹) — for profit analytics"
+                  value={form.cost_price}
+                  onChangeText={(v) => setForm({ ...form, cost_price: v })}
+                  testID="form-cost-price"
                   keyboardType="decimal-pad"
                 />
                 <Field

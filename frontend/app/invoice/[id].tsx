@@ -107,6 +107,7 @@ export default function InvoiceScreen() {
             <Row k="Date" v={`${bill.date}`} />
             <Row k="Day" v={bill.day} />
             <Row k="Time" v={bill.time} />
+            {bill.customer_name ? <Row k="Name" v={bill.customer_name} /> : null}
             {bill.customer_mobile ? <Row k="Mobile" v={bill.customer_mobile} /> : null}
             <View style={styles.dash} />
 
