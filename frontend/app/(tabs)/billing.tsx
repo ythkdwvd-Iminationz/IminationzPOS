@@ -10,7 +10,6 @@ import {
   Platform,
   ActivityIndicator,
   Modal,
-  ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -205,6 +204,7 @@ export default function BillingScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
+        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>New Bill</Text>
           <Pressable testID="reset-bill" onPress={reset} style={styles.resetBtn}>
@@ -212,112 +212,124 @@ export default function BillingScreen() {
           </Pressable>
         </View>
 
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={styles.label}>Customer Mobile (optional)</Text>
-          <TextInput
-            testID="customer-mobile-input"
-            value={customerMobile}
-            onChangeText={setCustomerMobile}
-            onBlur={onMobileBlur}
-            keyboardType="phone-pad"
-            placeholder="10-digit mobile"
-            placeholderTextColor={theme.color.onSurfaceTertiary}
-            style={styles.input}
-            maxLength={15}
-          />
+        {/* Main content area - flex 1 to grow and shrink */}
+        <View style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          {/* Top section - Customer info (NOT scrollable) */}
+          <View style={styles.topSection}>
+            <Text style={styles.label}>Customer Mobile (optional)</Text>
+            <TextInput
+              testID="customer-mobile-input"
+              value={customerMobile}
+              onChangeText={setCustomerMobile}
+              onBlur={onMobileBlur}
+              keyboardType="phone-pad"
+              placeholder="10-digit mobile"
+              placeholderTextColor={theme.color.onSurfaceTertiary}
+              style={styles.input}
+              maxLength={15}
+            />
 
-          {customerInfo?.is_returning && (
-            <View testID="returning-customer-badge" style={styles.returningBadge}>
-              <Ionicons name="star" size={14} color={theme.color.brandPrimary} />
-              <Text style={styles.returningText}>
-                Returning · {customerInfo.visits} visits · {formatINRPlain(customerInfo.total_spent)} lifetime
-              </Text>
-            </View>
-          )}
-
-          <Text style={[styles.label, { marginTop: theme.spacing.md }]}>Customer Name (optional)</Text>
-          <TextInput
-            testID="customer-name-input"
-            value={customerName}
-            onChangeText={setCustomerName}
-            placeholder="e.g. Riya Sharma"
-            placeholderTextColor={theme.color.onSurfaceTertiary}
-            style={styles.input}
-          />
-
-          <Pressable
-            testID="add-item-button"
-            onPress={() => setPickerOpen(true)}
-            style={styles.addItemBtn}
-          >
-            <Ionicons name="add" size={22} color={theme.color.onBrandPrimary} />
-            <Text style={styles.addItemText}>Add Item</Text>
-          </Pressable>
-
-          {loading && <ActivityIndicator color={theme.color.brandPrimary} style={{ marginTop: 12 }} />}
-
-          {cart.length === 0 && !loading && (
-            <View style={styles.empty} testID="empty-cart">
-              <Ionicons name="cart-outline" size={36} color={theme.color.onSurfaceTertiary} />
-              <Text style={styles.emptyText}>No items yet. Tap Add Item.</Text>
-            </View>
-          )}
-
-          {cart.map((l) => (
-            <View key={l.inv.id} style={styles.line} testID={`cart-line-${l.inv.item_id}`}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.lineName}>{l.inv.item_name}</Text>
-                <Text style={styles.lineSub}>
-                  {formatINRPlain(l.inv.price)} · stock {l.inv.current_qty}
+            {customerInfo?.is_returning && (
+              <View testID="returning-customer-badge" style={styles.returningBadge}>
+                <Ionicons name="star" size={14} color={theme.color.brandPrimary} />
+                <Text style={styles.returningText}>
+                  Returning · {customerInfo.visits} visits · {formatINRPlain(customerInfo.total_spent)} lifetime
                 </Text>
               </View>
-              <View style={styles.qtyBox}>
-                <Pressable
-                  testID={`qty-dec-${l.inv.item_id}`}
-                  onPress={() => updateQty(l.inv.id, -1)}
-                  style={styles.qtyBtn}
-                >
-                  <Ionicons name="remove" size={16} color={theme.color.onSurface} />
-                </Pressable>
-                <TextInput
-                  testID={`qty-input-${l.inv.item_id}`}
-                  value={String(l.qty)}
-                  onChangeText={(v) => setQty(l.inv.id, v)}
-                  keyboardType="number-pad"
-                  style={styles.qtyInput}
-                />
-                <Pressable
-                  testID={`qty-inc-${l.inv.item_id}`}
-                  onPress={() => updateQty(l.inv.id, 1)}
-                  style={styles.qtyBtn}
-                >
-                  <Ionicons name="add" size={16} color={theme.color.onSurface} />
-                </Pressable>
+            )}
+
+            <Text style={[styles.label, { marginTop: theme.spacing.md }]}>Customer Name (optional)</Text>
+            <TextInput
+              testID="customer-name-input"
+              value={customerName}
+              onChangeText={setCustomerName}
+              placeholder="e.g. Riya Sharma"
+              placeholderTextColor={theme.color.onSurfaceTertiary}
+              style={styles.input}
+            />
+
+            <Pressable
+              testID="add-item-button"
+              onPress={() => setPickerOpen(true)}
+              style={styles.addItemBtn}
+            >
+              <Ionicons name="add" size={22} color={theme.color.onBrandPrimary} />
+              <Text style={styles.addItemText}>Add Item</Text>
+            </Pressable>
+          </View>
+
+          {/* Middle section - Scrollable items list (flex: 1) */}
+          <View style={{ flex: 1, minHeight: 0 }}>
+            {loading ? (
+              <View style={styles.centerContent}>
+                <ActivityIndicator color={theme.color.brandPrimary} />
               </View>
-              <Text style={styles.lineTotal}>{formatINRPlain(l.inv.price * l.qty)}</Text>
-              <Pressable
-                testID={`remove-${l.inv.item_id}`}
-                onPress={() => removeLine(l.inv.id)}
-                hitSlop={8}
-              >
-                <Ionicons name="close-circle" size={20} color={theme.color.error} />
-              </Pressable>
-            </View>
-          ))}
+            ) : cart.length === 0 ? (
+              <View style={styles.centerContent}>
+                <Ionicons name="cart-outline" size={36} color={theme.color.onSurfaceTertiary} />
+                <Text style={styles.emptyText}>No items yet. Tap Add Item.</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={cart}
+                keyExtractor={(l) => l.inv.id}
+                contentContainerStyle={styles.itemsListContent}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item: l }) => (
+                  <View key={l.inv.id} style={styles.line} testID={`cart-line-${l.inv.item_id}`}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.lineName}>{l.inv.item_name}</Text>
+                      <Text style={styles.lineSub}>
+                        {formatINRPlain(l.inv.price)} · stock {l.inv.current_qty}
+                      </Text>
+                    </View>
+                    <View style={styles.qtyBox}>
+                      <Pressable
+                        testID={`qty-dec-${l.inv.item_id}`}
+                        onPress={() => updateQty(l.inv.id, -1)}
+                        style={styles.qtyBtn}
+                      >
+                        <Ionicons name="remove" size={16} color={theme.color.onSurface} />
+                      </Pressable>
+                      <TextInput
+                        testID={`qty-input-${l.inv.item_id}`}
+                        value={String(l.qty)}
+                        onChangeText={(v) => setQty(l.inv.id, v)}
+                        keyboardType="number-pad"
+                        style={styles.qtyInput}
+                      />
+                      <Pressable
+                        testID={`qty-inc-${l.inv.item_id}`}
+                        onPress={() => updateQty(l.inv.id, 1)}
+                        style={styles.qtyBtn}
+                      >
+                        <Ionicons name="add" size={16} color={theme.color.onSurface} />
+                      </Pressable>
+                    </View>
+                    <Text style={styles.lineTotal}>{formatINRPlain(l.inv.price * l.qty)}</Text>
+                    <Pressable
+                      testID={`remove-${l.inv.item_id}`}
+                      onPress={() => removeLine(l.inv.id)}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="close-circle" size={20} color={theme.color.error} />
+                    </Pressable>
+                  </View>
+                )}
+              />
+            )}
 
-          {error && (
-            <Text testID="bill-error" style={styles.error}>
-              {error}
-            </Text>
-          )}
+            {error && (
+              <View style={styles.errorContainer}>
+                <Text testID="bill-error" style={styles.error}>
+                  {error}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
 
-          <View style={{ height: 280 }} />
-        </ScrollView>
-
-        {/* Sticky payment panel */}
+        {/* Bottom section - Fixed payment panel (NOT absolute, NOT overlay) */}
         <View style={styles.paymentPanel}>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Gross</Text>
@@ -499,7 +511,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  scroll: { padding: theme.spacing.lg, paddingBottom: 0 },
+  topSection: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    borderBottomColor: theme.color.divider,
+    borderBottomWidth: 1,
+  },
   label: {
     color: theme.color.onSurfaceTertiary,
     fontSize: 11,
@@ -528,8 +545,18 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.lg,
   },
   addItemText: { color: theme.color.onBrandPrimary, fontWeight: "700", fontSize: 15 },
-  empty: { alignItems: "center", paddingVertical: theme.spacing.xxl, gap: 8 },
+  centerContent: { 
+    flex: 1, 
+    alignItems: "center", 
+    justifyContent: "center", 
+    gap: 8 
+  },
   emptyText: { color: theme.color.onSurfaceTertiary },
+  itemsListContent: { 
+    paddingHorizontal: theme.spacing.lg, 
+    paddingVertical: theme.spacing.md,
+    paddingBottom: theme.spacing.lg,
+  },
   line: {
     flexDirection: "row",
     alignItems: "center",
@@ -539,7 +566,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: theme.radius.md,
     padding: theme.spacing.md,
-    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.md,
   },
   lineName: { color: theme.color.onSurface, fontWeight: "600", fontSize: 14 },
   lineSub: { color: theme.color.onSurfaceTertiary, fontSize: 11, marginTop: 2 },
@@ -569,12 +596,12 @@ const styles = StyleSheet.create({
     minWidth: 64,
     textAlign: "right",
   },
-  error: { color: theme.color.error, marginTop: theme.spacing.md, fontSize: 13 },
+  errorContainer: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+  },
+  error: { color: theme.color.error, fontSize: 13 },
   paymentPanel: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
     backgroundColor: theme.color.surfaceSecondary,
     borderTopColor: theme.color.brandPrimary,
     borderTopWidth: 1,
