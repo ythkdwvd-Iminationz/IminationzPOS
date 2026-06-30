@@ -36,6 +36,12 @@ export default function BillingScreen() {
   const [pickerSearch, setPickerSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Customer details modal state
+  const [customerModalOpen, setCustomerModalOpen] = useState(false);
+  const [tempCustomerMobile, setTempCustomerMobile] = useState("");
+  const [tempCustomerName, setTempCustomerName] = useState("");
+  const [tempCustomerInfo, setTempCustomerInfo] = useState<CustomerInfo | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -138,36 +144,47 @@ export default function BillingScreen() {
     setCashAmount("");
     setUpiAmount("");
     setError(null);
+    setTempCustomerMobile("");
+    setTempCustomerName("");
+    setTempCustomerInfo(null);
   };
 
-  const onMobileBlur = async () => {
-    const mobile = customerMobile.trim();
-    if (!mobile || mobile.length < 6) {
-      setCustomerInfo(null);
+  const onMobileBlur = async (mobile: string) => {
+    const cleanMobile = mobile.trim();
+    if (!cleanMobile || cleanMobile.length < 6) {
+      setTempCustomerInfo(null);
       return;
     }
     try {
-      const info = await api.lookupCustomer(mobile);
-      setCustomerInfo(info);
-      if (info.is_returning && info.last_name && !customerName.trim()) {
-        setCustomerName(info.last_name);
+      const info = await api.lookupCustomer(cleanMobile);
+      setTempCustomerInfo(info);
+      if (info.is_returning && info.last_name && !tempCustomerName.trim()) {
+        setTempCustomerName(info.last_name);
       }
     } catch {
-      setCustomerInfo(null);
+      setTempCustomerInfo(null);
     }
   };
 
-  const submit = async () => {
-    setError(null);
+  const openCompleteModal = () => {
     if (!isValid) {
       setError("Cash + UPI must equal final amount");
       return;
     }
+    // Reset modal state
+    setTempCustomerMobile("");
+    setTempCustomerName("");
+    setTempCustomerInfo(null);
+    setCustomerModalOpen(true);
+  };
+
+  const submit = async () => {
+    setError(null);
     setSubmitting(true);
     try {
       const bill = await api.createBill({
-        customer_mobile: customerMobile.trim() || null,
-        customer_name: customerName.trim() || null,
+        customer_mobile: tempCustomerMobile.trim() || null,
+        customer_name: tempCustomerName.trim() || null,
         cash_amount: parseFloat(cashAmount || "0") || 0,
         upi_amount: parseFloat(upiAmount || "0") || 0,
         items: cart.map((l) => ({
@@ -180,6 +197,7 @@ export default function BillingScreen() {
         })),
       });
       reset();
+      setCustomerModalOpen(false);
       router.push(`/invoice/${bill.id}`);
       load();
     } catch (e: any) {
@@ -212,42 +230,10 @@ export default function BillingScreen() {
           </Pressable>
         </View>
 
-        {/* Main content area - flex 1 to grow and shrink */}
+        {/* Main content area */}
         <View style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          {/* Top section - Customer info (NOT scrollable) */}
+          {/* Top section - Add Item Button only (minimal space) */}
           <View style={styles.topSection}>
-            <Text style={styles.label}>Customer Mobile (optional)</Text>
-            <TextInput
-              testID="customer-mobile-input"
-              value={customerMobile}
-              onChangeText={setCustomerMobile}
-              onBlur={onMobileBlur}
-              keyboardType="phone-pad"
-              placeholder="10-digit mobile"
-              placeholderTextColor={theme.color.onSurfaceTertiary}
-              style={styles.input}
-              maxLength={15}
-            />
-
-            {customerInfo?.is_returning && (
-              <View testID="returning-customer-badge" style={styles.returningBadge}>
-                <Ionicons name="star" size={14} color={theme.color.brandPrimary} />
-                <Text style={styles.returningText}>
-                  Returning · {customerInfo.visits} visits · {formatINRPlain(customerInfo.total_spent)} lifetime
-                </Text>
-              </View>
-            )}
-
-            <Text style={[styles.label, { marginTop: theme.spacing.md }]}>Customer Name (optional)</Text>
-            <TextInput
-              testID="customer-name-input"
-              value={customerName}
-              onChangeText={setCustomerName}
-              placeholder="e.g. Riya Sharma"
-              placeholderTextColor={theme.color.onSurfaceTertiary}
-              style={styles.input}
-            />
-
             <Pressable
               testID="add-item-button"
               onPress={() => setPickerOpen(true)}
@@ -258,7 +244,7 @@ export default function BillingScreen() {
             </Pressable>
           </View>
 
-          {/* Middle section - Scrollable items list (flex: 1) */}
+          {/* Middle section - Scrollable items list */}
           <View style={{ flex: 1, minHeight: 0 }}>
             {loading ? (
               <View style={styles.centerContent}>
@@ -329,7 +315,7 @@ export default function BillingScreen() {
           </View>
         </View>
 
-        {/* Bottom section - Fixed payment panel (NOT absolute, NOT overlay) */}
+        {/* Bottom section - Fixed payment panel */}
         <View style={styles.paymentPanel}>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Gross</Text>
@@ -411,7 +397,7 @@ export default function BillingScreen() {
             </View>
             <Pressable
               testID="complete-bill-button"
-              onPress={submit}
+              onPress={openCompleteModal}
               disabled={!isValid || submitting}
               style={[
                 styles.completeBtn,
@@ -485,6 +471,105 @@ export default function BillingScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* Customer details modal - shown when Complete Bill is clicked */}
+        <Modal
+          visible={customerModalOpen}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setCustomerModalOpen(false)}
+        >
+          <View style={styles.customerModalBackdrop}>
+            <View style={styles.customerModalContent}>
+              <View style={styles.customerModalHeader}>
+                <Text style={styles.customerModalTitle}>Customer Details</Text>
+                <Pressable 
+                  testID="close-customer-modal"
+                  onPress={() => setCustomerModalOpen(false)}
+                  disabled={submitting}
+                >
+                  <Ionicons name="close" size={24} color={theme.color.onSurface} />
+                </Pressable>
+              </View>
+
+              <View style={styles.customerModalBody}>
+                <Text style={styles.label}>Mobile Number (optional)</Text>
+                <TextInput
+                  testID="customer-mobile-modal-input"
+                  value={tempCustomerMobile}
+                  onChangeText={setTempCustomerMobile}
+                  onBlur={() => onMobileBlur(tempCustomerMobile)}
+                  keyboardType="phone-pad"
+                  placeholder="10-digit mobile"
+                  placeholderTextColor={theme.color.onSurfaceTertiary}
+                  style={styles.input}
+                  maxLength={15}
+                  editable={!submitting}
+                />
+
+                {tempCustomerInfo?.is_returning && (
+                  <View testID="returning-customer-badge" style={styles.returningBadge}>
+                    <Ionicons name="star" size={14} color={theme.color.brandPrimary} />
+                    <Text style={styles.returningText}>
+                      Returning · {tempCustomerInfo.visits} visits · {formatINRPlain(tempCustomerInfo.total_spent)} lifetime
+                    </Text>
+                  </View>
+                )}
+
+                <Text style={[styles.label, { marginTop: theme.spacing.lg }]}>Customer Name (optional)</Text>
+                <TextInput
+                  testID="customer-name-modal-input"
+                  value={tempCustomerName}
+                  onChangeText={setTempCustomerName}
+                  placeholder="e.g. Riya Sharma"
+                  placeholderTextColor={theme.color.onSurfaceTertiary}
+                  style={styles.input}
+                  editable={!submitting}
+                />
+
+                <View style={styles.billSummaryContainer}>
+                  <Text style={styles.billSummaryLabel}>Bill Summary</Text>
+                  <View style={styles.billSummaryRow}>
+                    <Text style={styles.billSummaryText}>Items:</Text>
+                    <Text style={styles.billSummaryText}>{cart.length}</Text>
+                  </View>
+                  <View style={styles.billSummaryRow}>
+                    <Text style={styles.billSummaryText}>Total:</Text>
+                    <Text style={styles.billSummaryValueBig}>{formatINRPlain(finalAmount)}</Text>
+                  </View>
+                  <View style={styles.billSummaryRow}>
+                    <Text style={styles.billSummaryText}>Payment:</Text>
+                    <Text style={styles.billSummaryValueBig}>{formatINRPlain(paid)}</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.customerModalActions}>
+                <Pressable
+                  style={[styles.cancelBtn, submitting && { opacity: 0.5 }]}
+                  onPress={() => setCustomerModalOpen(false)}
+                  disabled={submitting}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.submitBtn, (!isValid || submitting) && { opacity: 0.5 }]}
+                  onPress={submit}
+                  disabled={!isValid || submitting}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color={theme.color.onBrandPrimary} />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={18} color={theme.color.onBrandPrimary} />
+                      <Text style={styles.submitBtnText}>Confirm & Complete</Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -542,7 +627,6 @@ const styles = StyleSheet.create({
     backgroundColor: theme.color.brandPrimary,
     paddingVertical: 14,
     borderRadius: theme.radius.md,
-    marginTop: theme.spacing.lg,
   },
   addItemText: { color: theme.color.onBrandPrimary, fontWeight: "700", fontSize: 15 },
   centerContent: { 
@@ -705,5 +789,104 @@ const styles = StyleSheet.create({
     color: theme.color.onSurfaceTertiary,
     textAlign: "center",
     marginTop: theme.spacing.xl,
+  },
+
+  // Customer details modal styles
+  customerModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "flex-end",
+  },
+  customerModalContent: {
+    backgroundColor: theme.color.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopColor: theme.color.brandPrimary,
+    borderTopWidth: 2,
+    maxHeight: "85%",
+  },
+  customerModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.lg,
+    paddingBottom: theme.spacing.md,
+    borderBottomColor: theme.color.divider,
+    borderBottomWidth: 1,
+  },
+  customerModalTitle: {
+    color: theme.color.onSurface,
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  customerModalBody: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.lg,
+  },
+  billSummaryContainer: {
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.brandPrimary,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.lg,
+    marginTop: theme.spacing.lg,
+  },
+  billSummaryLabel: {
+    color: theme.color.onSurface,
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: theme.spacing.md,
+  },
+  billSummaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: theme.spacing.sm,
+  },
+  billSummaryText: {
+    color: theme.color.onSurfaceSecondary,
+    fontSize: 13,
+  },
+  billSummaryValueBig: {
+    color: theme.color.brandPrimary,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  customerModalActions: {
+    flexDirection: "row",
+    gap: theme.spacing.md,
+    paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.lg,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelBtnText: {
+    color: theme.color.onSurfaceSecondary,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  submitBtn: {
+    flex: 1,
+    flexDirection: "row",
+    paddingVertical: 14,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.color.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  submitBtnText: {
+    color: theme.color.onBrandPrimary,
+    fontSize: 15,
+    fontWeight: "700",
   },
 });
