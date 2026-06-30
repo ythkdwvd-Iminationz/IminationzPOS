@@ -17,6 +17,9 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { api, InventoryItem, CustomerInfo } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 
+// Display-only rounding: 120.5+ -> 121, 120.4 and below -> 120 (standard Math.round)
+const fmt = (n: number) => formatINRPlain(Math.round(n));
+
 interface CartLine {
   inv: InventoryItem;
   qty: number;
@@ -307,7 +310,7 @@ export default function BillingScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.lineName}>{l.inv.item_name}</Text>
                       <Text style={styles.lineSub}>
-                        {formatINRPlain(l.inv.price)} · stock {l.inv.current_qty}
+                        {fmt(l.inv.price)} · stock {l.inv.current_qty}
                       </Text>
                     </View>
                     <View style={styles.qtyBox}>
@@ -333,7 +336,7 @@ export default function BillingScreen() {
                         <Ionicons name="add" size={16} color={theme.color.onSurface} />
                       </Pressable>
                     </View>
-                    <Text style={styles.lineTotal}>{formatINRPlain(l.inv.price * l.qty)}</Text>
+                    <Text style={styles.lineTotal}>{fmt(l.inv.price * l.qty)}</Text>
                     <Pressable
                       testID={`remove-${l.inv.item_id}`}
                       onPress={() => removeLine(l.inv.id)}
@@ -360,7 +363,7 @@ export default function BillingScreen() {
         <View style={styles.paymentPanel}>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Gross</Text>
-            <Text style={styles.summaryValue}>{formatINRPlain(gross)}</Text>
+            <Text style={styles.summaryValue}>{fmt(gross)}</Text>
           </View>
           {discount > 0 && (
             <View style={styles.summaryRow}>
@@ -368,14 +371,14 @@ export default function BillingScreen() {
                 <Text style={styles.discountTagText}>10% OFF</Text>
               </View>
               <Text style={[styles.summaryValue, { color: theme.color.warning }]}>
-                -{formatINRPlain(discount)}
+                -{fmt(discount)}
               </Text>
             </View>
           )}
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabelBig}>Final</Text>
             <Text style={styles.summaryValueBig} testID="final-amount">
-              {formatINRPlain(finalAmount)}
+              {fmt(finalAmount)}
             </Text>
           </View>
 
@@ -408,7 +411,7 @@ export default function BillingScreen() {
 
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Paid (Cash + UPI)</Text>
-            <Text style={styles.summaryValue}>{formatINRPlain(paid)}</Text>
+            <Text style={styles.summaryValue}>{fmt(paid)}</Text>
           </View>
           {Math.abs(payable) > 0.01 && (
             <Text
@@ -416,8 +419,8 @@ export default function BillingScreen() {
               style={[styles.diff, { color: payable > 0 ? theme.color.error : theme.color.warning }]}
             >
               {payable > 0
-                ? `Short by ${formatINRPlain(payable)}`
-                : `Over by ${formatINRPlain(-payable)}`}
+                ? `Short by ${fmt(payable)}`
+                : `Over by ${fmt(-payable)}`}
             </Text>
           )}
 
@@ -536,7 +539,7 @@ export default function BillingScreen() {
                           {item.item_name}
                         </Text>
                         <Text style={styles.itemCardSub}>
-                          {formatINRPlain(item.price)}
+                          {fmt(item.price)}
                         </Text>
                         <View
                           style={[
@@ -635,7 +638,7 @@ export default function BillingScreen() {
                   <View testID="returning-customer-badge" style={styles.returningBadge}>
                     <Ionicons name="star" size={14} color={theme.color.brandPrimary} />
                     <Text style={styles.returningText}>
-                      Returning · {tempCustomerInfo.visits} visits · {formatINRPlain(tempCustomerInfo.total_spent)} lifetime
+                      Returning · {tempCustomerInfo.visits} visits · {fmt(tempCustomerInfo.total_spent)} lifetime
                     </Text>
                   </View>
                 )}
@@ -659,11 +662,11 @@ export default function BillingScreen() {
                   </View>
                   <View style={styles.billSummaryRow}>
                     <Text style={styles.billSummaryText}>Total:</Text>
-                    <Text style={styles.billSummaryValueBig}>{formatINRPlain(finalAmount)}</Text>
+                    <Text style={styles.billSummaryValueBig}>{fmt(finalAmount)}</Text>
                   </View>
                   <View style={styles.billSummaryRow}>
                     <Text style={styles.billSummaryText}>Payment:</Text>
-                    <Text style={styles.billSummaryValueBig}>{formatINRPlain(paid)}</Text>
+                    <Text style={styles.billSummaryValueBig}>{fmt(paid)}</Text>
                   </View>
                 </View>
               </View>
