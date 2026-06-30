@@ -4,7 +4,7 @@
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
 
 # Expo Router is a SPA — rewrite every path to index.html so deep links work
 [[redirects]]
