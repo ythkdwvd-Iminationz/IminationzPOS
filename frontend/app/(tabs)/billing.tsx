@@ -686,6 +686,14 @@ export default function BillingScreen() {
                     <Text style={styles.billSummaryValueBig}>{fmt(paid)}</Text>
                   </View>
                 </View>
+
+                {error && (
+                  <View style={{ marginTop: theme.spacing.md }}>
+                    <Text testID="customer-modal-error" style={styles.error}>
+                      {error}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               <View style={styles.customerModalActions}>
