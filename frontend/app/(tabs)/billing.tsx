@@ -67,7 +67,10 @@ export default function BillingScreen() {
   const { gross, discount, finalAmount, paid, payable, isValid, status } = useMemo(() => {
     const gross = cart.reduce((s, l) => s + l.inv.price * l.qty, 0);
     const discount = gross > 699 ? Math.round(gross * 0.1 * 100) / 100 : 0;
-    const finalAmount = Math.round((gross - discount) * 100) / 100;
+    // Round to whole rupees here so this matches exactly what's displayed (fmt() also rounds).
+    // Without this, the displayed "Final" could show e.g. ₹121 while the real value used for
+    // validation is 120.5x, making Cash+UPI never exactly match and Complete Bill stay disabled.
+    const finalAmount = Math.round(gross - discount);
     const c = parseFloat(cashAmount || "0") || 0;
     const u = parseFloat(upiAmount || "0") || 0;
     const paid = Math.round((c + u) * 100) / 100;
@@ -83,6 +86,20 @@ export default function BillingScreen() {
       status: isValid ? "PAID" : "DRAFT",
     };
   }, [cart, cashAmount, upiAmount]);
+
+  const onCashChange = (val: string) => {
+    setCashAmount(val);
+    const cashNum = parseFloat(val || "0") || 0;
+    const remainder = Math.round((finalAmount - cashNum) * 100) / 100;
+    setUpiAmount(remainder === 0 ? "0" : String(remainder));
+  };
+
+  const onUpiChange = (val: string) => {
+    setUpiAmount(val);
+    const upiNum = parseFloat(val || "0") || 0;
+    const remainder = Math.round((finalAmount - upiNum) * 100) / 100;
+    setCashAmount(remainder === 0 ? "0" : String(remainder));
+  };
 
   const updateQty = (invId: string, delta: number) => {
     setCart((prev) => {
@@ -388,7 +405,7 @@ export default function BillingScreen() {
               <TextInput
                 testID="cash-input"
                 value={cashAmount}
-                onChangeText={setCashAmount}
+                onChangeText={onCashChange}
                 keyboardType="numbers-and-punctuation"
                 placeholder="0"
                 placeholderTextColor={theme.color.onSurfaceTertiary}
@@ -400,7 +417,7 @@ export default function BillingScreen() {
               <TextInput
                 testID="upi-input"
                 value={upiAmount}
-                onChangeText={setUpiAmount}
+                onChangeText={onUpiChange}
                 keyboardType="numbers-and-punctuation"
                 placeholder="0"
                 placeholderTextColor={theme.color.onSurfaceTertiary}
