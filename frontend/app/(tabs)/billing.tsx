@@ -34,9 +34,10 @@ export default function BillingScreen() {
   const [upiAmount, setUpiAmount] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Customer details modal state
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [tempCustomerMobile, setTempCustomerMobile] = useState("");
@@ -115,6 +116,8 @@ export default function BillingScreen() {
     setCart((prev) => prev.filter((l) => l.inv.id !== invId));
   };
 
+  const cartQtyFor = (invId: string) => cart.find((l) => l.inv.id === invId)?.qty ?? 0;
+
   const addItemToCart = (inv: InventoryItem) => {
     setError(null);
     if (inv.current_qty <= 0) {
@@ -132,8 +135,23 @@ export default function BillingScreen() {
       }
       return [...prev, { inv, qty: 1 }];
     });
+  };
+
+  const decrementFromPicker = (inv: InventoryItem) => {
+    setCart((prev) => {
+      const existing = prev.find((l) => l.inv.id === inv.id);
+      if (!existing) return prev;
+      if (existing.qty - 1 <= 0) {
+        return prev.filter((l) => l.inv.id !== inv.id);
+      }
+      return prev.map((l) => (l.inv.id === inv.id ? { ...l, qty: l.qty - 1 } : l));
+    });
+  };
+
+  const closePicker = () => {
     setPickerOpen(false);
     setPickerSearch("");
+    setSelectedCategory(null);
   };
 
   const reset = () => {
@@ -207,14 +225,37 @@ export default function BillingScreen() {
     }
   };
 
-  const filteredInventory = inventory.filter(
-    (i) =>
-      i.current_qty > 0 &&
-      (pickerSearch.trim() === "" ||
-        i.item_name.toLowerCase().includes(pickerSearch.toLowerCase()) ||
-        i.category.toLowerCase().includes(pickerSearch.toLowerCase()) ||
-        i.item_id.toLowerCase().includes(pickerSearch.toLowerCase()))
-  );
+  // Distinct categories from in-stock inventory, alphabetically sorted
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    inventory.forEach((i) => {
+      if (i.current_qty > 0) set.add(i.category);
+    });
+    return Array.from(set).sort();
+  }, [inventory]);
+
+  // Auto-select first category whenever picker opens (if none chosen yet)
+  const openPicker = () => {
+    setPickerOpen(true);
+    if (!selectedCategory && categories.length > 0) {
+      setSelectedCategory(categories[0]);
+    }
+  };
+
+  const filteredInventory = inventory.filter((i) => {
+    if (i.current_qty <= 0) return false;
+    const matchesSearch =
+      pickerSearch.trim() === "" ||
+      i.item_name.toLowerCase().includes(pickerSearch.toLowerCase()) ||
+      i.category.toLowerCase().includes(pickerSearch.toLowerCase()) ||
+      i.item_id.toLowerCase().includes(pickerSearch.toLowerCase());
+    if (!matchesSearch) return false;
+    // When searching, ignore category filter so results span all categories
+    if (pickerSearch.trim() !== "") return true;
+    return selectedCategory ? i.category === selectedCategory : true;
+  });
+
+  const totalPickerItems = cart.reduce((s, l) => s + l.qty, 0);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -236,7 +277,7 @@ export default function BillingScreen() {
           <View style={styles.topSection}>
             <Pressable
               testID="add-item-button"
-              onPress={() => setPickerOpen(true)}
+              onPress={openPicker}
               style={styles.addItemBtn}
             >
               <Ionicons name="add" size={22} color={theme.color.onBrandPrimary} />
@@ -416,58 +457,140 @@ export default function BillingScreen() {
           </View>
         </View>
 
-        {/* Item picker modal */}
+        {/* Item picker modal - category list (left) + item grid (right) */}
         <Modal
           visible={pickerOpen}
           animationType="slide"
           transparent
-          onRequestClose={() => setPickerOpen(false)}
+          onRequestClose={closePicker}
         >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalSheet}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Select Item</Text>
-                <Pressable testID="close-picker" onPress={() => setPickerOpen(false)}>
-                  <Ionicons name="close" size={24} color={theme.color.onSurface} />
-                </Pressable>
+                <Text style={styles.modalTitle}>Select Items</Text>
+                <View style={styles.modalHeaderRight}>
+                  {totalPickerItems > 0 && (
+                    <View style={styles.cartCountChip}>
+                      <Ionicons name="cart" size={13} color={theme.color.onBrandPrimary} />
+                      <Text style={styles.cartCountChipText}>{totalPickerItems}</Text>
+                    </View>
+                  )}
+                  <Pressable testID="close-picker" onPress={closePicker} hitSlop={8}>
+                    <Ionicons name="close" size={24} color={theme.color.onSurface} />
+                  </Pressable>
+                </View>
               </View>
+
               <TextInput
                 testID="picker-search"
                 value={pickerSearch}
                 onChangeText={setPickerSearch}
                 placeholder="Search by name, category, ID"
                 placeholderTextColor={theme.color.onSurfaceTertiary}
-                style={[styles.input, { margin: theme.spacing.lg }]}
+                style={[styles.input, { marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.lg }]}
               />
-              <FlatList
-                data={filteredInventory}
-                keyExtractor={(it) => it.id}
-                renderItem={({ item }) => (
-                  <Pressable
-                    testID={`pick-${item.item_id}`}
-                    onPress={() => addItemToCart(item)}
-                    style={styles.pickRow}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.pickName}>{item.item_name}</Text>
-                      <Text style={styles.pickSub}>
-                        {item.category} · {formatINRPlain(item.price)}
-                      </Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.stockChip,
-                        item.current_qty <= 5 && { backgroundColor: theme.color.error },
-                      ]}
-                    >
-                      <Text style={styles.stockChipText}>Qty {item.current_qty}</Text>
-                    </View>
-                  </Pressable>
+
+              {/* Split body: category rail on left, item grid on right */}
+              <View style={styles.pickerBody}>
+                {pickerSearch.trim() === "" && (
+                  <FlatList
+                    testID="category-rail"
+                    data={categories}
+                    keyExtractor={(c) => c}
+                    style={styles.categoryRail}
+                    contentContainerStyle={{ paddingVertical: theme.spacing.md }}
+                    renderItem={({ item: cat }) => {
+                      const active = cat === selectedCategory;
+                      return (
+                        <Pressable
+                          testID={`category-${cat}`}
+                          onPress={() => setSelectedCategory(cat)}
+                          style={[styles.categoryItem, active && styles.categoryItemActive]}
+                        >
+                          <Text
+                            style={[styles.categoryItemText, active && styles.categoryItemTextActive]}
+                            numberOfLines={2}
+                          >
+                            {cat}
+                          </Text>
+                        </Pressable>
+                      );
+                    }}
+                  />
                 )}
-                ListEmptyComponent={
-                  <Text style={styles.pickEmpty}>No items found</Text>
-                }
-              />
+
+                <FlatList
+                  testID="item-grid"
+                  data={filteredInventory}
+                  keyExtractor={(it) => it.id}
+                  numColumns={2}
+                  style={{ flex: 1 }}
+                  contentContainerStyle={styles.itemGridContent}
+                  columnWrapperStyle={{ gap: theme.spacing.md }}
+                  renderItem={({ item }) => {
+                    const qtyInCart = cartQtyFor(item.id);
+                    return (
+                      <View style={styles.itemCard} testID={`item-card-${item.item_id}`}>
+                        <Text style={styles.itemCardName} numberOfLines={2}>
+                          {item.item_name}
+                        </Text>
+                        <Text style={styles.itemCardSub}>
+                          {formatINRPlain(item.price)}
+                        </Text>
+                        <View
+                          style={[
+                            styles.itemCardStock,
+                            item.current_qty <= 5 && { backgroundColor: theme.color.error },
+                          ]}
+                        >
+                          <Text style={styles.itemCardStockText}>Qty {item.current_qty}</Text>
+                        </View>
+
+                        {qtyInCart === 0 ? (
+                          <Pressable
+                            testID={`pick-${item.item_id}`}
+                            onPress={() => addItemToCart(item)}
+                            style={styles.itemCardAddBtn}
+                          >
+                            <Ionicons name="add" size={18} color={theme.color.onBrandPrimary} />
+                          </Pressable>
+                        ) : (
+                          <View style={styles.itemCardQtyBox}>
+                            <Pressable
+                              testID={`pick-dec-${item.item_id}`}
+                              onPress={() => decrementFromPicker(item)}
+                              style={styles.itemCardQtyBtn}
+                            >
+                              <Ionicons name="remove" size={16} color={theme.color.onSurface} />
+                            </Pressable>
+                            <Text style={styles.itemCardQtyText}>{qtyInCart}</Text>
+                            <Pressable
+                              testID={`pick-inc-${item.item_id}`}
+                              onPress={() => addItemToCart(item)}
+                              style={styles.itemCardQtyBtn}
+                            >
+                              <Ionicons name="add" size={16} color={theme.color.onSurface} />
+                            </Pressable>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <Text style={styles.pickEmpty}>No items found</Text>
+                  }
+                />
+              </View>
+
+              <Pressable
+                testID="picker-done"
+                onPress={closePicker}
+                style={styles.pickerDoneBtn}
+              >
+                <Text style={styles.pickerDoneText}>
+                  {totalPickerItems > 0 ? `Done (${totalPickerItems} item${totalPickerItems > 1 ? "s" : ""})` : "Done"}
+                </Text>
+              </Pressable>
             </View>
           </View>
         </Modal>
@@ -755,7 +878,7 @@ const styles = StyleSheet.create({
   },
   modalSheet: {
     backgroundColor: theme.color.surface,
-    height: "80%",
+    height: "90%",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderTopColor: theme.color.brandPrimary,
@@ -768,23 +891,135 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
     paddingTop: theme.spacing.lg,
   },
-  modalTitle: { color: theme.color.onSurface, fontSize: 18, fontWeight: "700" },
-  pickRow: {
+  modalHeaderRight: {
     flexDirection: "row",
     alignItems: "center",
-    padding: theme.spacing.lg,
-    borderBottomColor: theme.color.divider,
-    borderBottomWidth: 1,
+    gap: theme.spacing.md,
   },
-  pickName: { color: theme.color.onSurface, fontWeight: "600", fontSize: 15 },
-  pickSub: { color: theme.color.onSurfaceTertiary, fontSize: 12, marginTop: 2 },
-  stockChip: {
-    backgroundColor: theme.color.surfaceTertiary,
+  modalTitle: { color: theme.color.onSurface, fontSize: 18, fontWeight: "700" },
+  cartCountChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: theme.color.brandPrimary,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: theme.radius.pill,
   },
-  stockChipText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  cartCountChipText: { color: theme.color.onBrandPrimary, fontSize: 12, fontWeight: "700" },
+
+  pickerBody: {
+    flex: 1,
+    flexDirection: "row",
+    marginTop: theme.spacing.md,
+  },
+  categoryRail: {
+    width: 96,
+    borderRightColor: theme.color.divider,
+    borderRightWidth: 1,
+  },
+  categoryItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: "transparent",
+  },
+  categoryItemActive: {
+    borderLeftColor: theme.color.brandPrimary,
+    backgroundColor: theme.color.surfaceSecondary,
+  },
+  categoryItemText: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  categoryItemTextActive: {
+    color: theme.color.brandPrimary,
+    fontWeight: "800",
+  },
+
+  itemGridContent: {
+    padding: theme.spacing.md,
+    gap: theme.spacing.md,
+  },
+  itemCard: {
+    flex: 1,
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+    minHeight: 130,
+  },
+  itemCardName: {
+    color: theme.color.onSurface,
+    fontWeight: "600",
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  itemCardSub: {
+    color: theme.color.brandPrimary,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  itemCardStock: {
+    alignSelf: "flex-start",
+    backgroundColor: theme.color.surfaceTertiary,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: theme.radius.pill,
+    marginTop: 6,
+  },
+  itemCardStockText: { color: "#fff", fontSize: 10, fontWeight: "700" },
+  itemCardAddBtn: {
+    position: "absolute",
+    bottom: theme.spacing.md,
+    right: theme.spacing.md,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.color.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  itemCardQtyBox: {
+    position: "absolute",
+    bottom: theme.spacing.sm,
+    right: theme.spacing.sm,
+    left: theme.spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: theme.color.surfaceTertiary,
+    borderRadius: theme.radius.sm,
+    paddingHorizontal: 4,
+  },
+  itemCardQtyBtn: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  itemCardQtyText: {
+    color: theme.color.onSurface,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+
+  pickerDoneBtn: {
+    margin: theme.spacing.lg,
+    backgroundColor: theme.color.brandPrimary,
+    paddingVertical: 14,
+    borderRadius: theme.radius.md,
+    alignItems: "center",
+  },
+  pickerDoneText: {
+    color: theme.color.onBrandPrimary,
+    fontWeight: "800",
+    fontSize: 15,
+  },
+
   pickEmpty: {
     color: theme.color.onSurfaceTertiary,
     textAlign: "center",
