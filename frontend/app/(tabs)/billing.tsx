@@ -493,30 +493,31 @@ export default function BillingScreen() {
               {/* Split body: category rail on left, item grid on right */}
               <View style={styles.pickerBody}>
                 {pickerSearch.trim() === "" && (
-                  <FlatList
-                    testID="category-rail"
-                    data={categories}
-                    keyExtractor={(c) => c}
-                    style={styles.categoryRail}
-                    contentContainerStyle={{ paddingVertical: theme.spacing.md }}
-                    renderItem={({ item: cat }) => {
-                      const active = cat === selectedCategory;
-                      return (
-                        <Pressable
-                          testID={`category-${cat}`}
-                          onPress={() => setSelectedCategory(cat)}
-                          style={[styles.categoryItem, active && styles.categoryItemActive]}
-                        >
-                          <Text
-                            style={[styles.categoryItemText, active && styles.categoryItemTextActive]}
-                            numberOfLines={2}
+                  <View style={styles.categoryRail}>
+                    <FlatList
+                      testID="category-rail"
+                      data={categories}
+                      keyExtractor={(c) => c}
+                      contentContainerStyle={{ paddingVertical: theme.spacing.sm }}
+                      renderItem={({ item: cat }) => {
+                        const active = cat === selectedCategory;
+                        return (
+                          <Pressable
+                            testID={`category-${cat}`}
+                            onPress={() => setSelectedCategory(cat)}
+                            style={[styles.categoryItem, active && styles.categoryItemActive]}
                           >
-                            {cat}
-                          </Text>
-                        </Pressable>
-                      );
-                    }}
-                  />
+                            <Text
+                              style={[styles.categoryItemText, active && styles.categoryItemTextActive]}
+                              numberOfLines={2}
+                            >
+                              {cat}
+                            </Text>
+                          </Pressable>
+                        );
+                      }}
+                    />
+                  </View>
                 )}
 
                 <FlatList
@@ -526,7 +527,7 @@ export default function BillingScreen() {
                   numColumns={2}
                   style={{ flex: 1 }}
                   contentContainerStyle={styles.itemGridContent}
-                  columnWrapperStyle={{ gap: theme.spacing.md }}
+                  columnWrapperStyle={{ gap: theme.spacing.sm, justifyContent: "space-between" }}
                   renderItem={({ item }) => {
                     const qtyInCart = cartQtyFor(item.id);
                     return (
@@ -914,13 +915,14 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.md,
   },
   categoryRail: {
-    width: 96,
+    minWidth: 64,
+    maxWidth: 110,
     borderRightColor: theme.color.divider,
     borderRightWidth: 1,
   },
   categoryItem: {
-    paddingVertical: 14,
-    paddingHorizontal: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     borderLeftWidth: 3,
     borderLeftColor: "transparent",
   },
@@ -930,7 +932,7 @@ const styles = StyleSheet.create({
   },
   categoryItemText: {
     color: theme.color.onSurfaceTertiary,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
   },
   categoryItemTextActive: {
@@ -939,18 +941,21 @@ const styles = StyleSheet.create({
   },
 
   itemGridContent: {
-    padding: theme.spacing.md,
-    gap: theme.spacing.md,
+    flexGrow: 1,
+    padding: theme.spacing.sm,
+    paddingBottom: theme.spacing.lg,
   },
   itemCard: {
-    flex: 1,
+    flexBasis: "48%",
+    flexGrow: 1,
     backgroundColor: theme.color.surfaceSecondary,
     borderColor: theme.color.border,
     borderWidth: 1,
     borderRadius: theme.radius.md,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.md,
-    minHeight: 130,
+    padding: theme.spacing.sm,
+    paddingBottom: 44,
+    marginBottom: theme.spacing.sm,
+    minHeight: 120,
   },
   itemCardName: {
     color: theme.color.onSurface,
@@ -974,11 +979,11 @@ const styles = StyleSheet.create({
   itemCardStockText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   itemCardAddBtn: {
     position: "absolute",
-    bottom: theme.spacing.md,
-    right: theme.spacing.md,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    bottom: theme.spacing.sm,
+    right: theme.spacing.sm,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: theme.color.brandPrimary,
     alignItems: "center",
     justifyContent: "center",
