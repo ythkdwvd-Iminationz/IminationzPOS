@@ -55,6 +55,13 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="stats-chart" size={size} color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="expenses"
+        options={{
+          title: "Expenses",
+          tabBarIcon: ({ color, size }) => <Ionicons name="wallet" size={size} color={color} />,
+        }}
+      />
     </Tabs>
   );
 }
