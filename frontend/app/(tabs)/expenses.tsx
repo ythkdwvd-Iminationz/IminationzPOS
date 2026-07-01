@@ -104,10 +104,7 @@ export default function ExpensesScreen() {
           }
         >
           {error && (
-            <View testID="expenses-error" style={styles.errBox}>
-              <Ionicons name="alert-circle" size={16} color={theme.color.error} />
-              <Text style={styles.errText}>{error}</Text>
-            </View>
+            <SetupNeededCard error={error} />
           )}
 
           {overview && (
@@ -346,6 +343,127 @@ function ExpenseRow({
         </Pressable>
       </Modal>
     </>
+  );
+}
+
+/* ---------------- Setup card ---------------- */
+
+const MIGRATION_SQL = `-- Iminationz POS — Expenses migration (run once in Supabase SQL Editor)
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  key text PRIMARY KEY,
+  value_num numeric,
+  value_text text,
+  updated_at timestamptz DEFAULT now()
+);
+
+INSERT INTO public.app_settings(key, value_num)
+VALUES ('personal_fund_total', 200000)
+ON CONFLICT (key) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.expenses (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  expense_date date NOT NULL DEFAULT CURRENT_DATE,
+  amount numeric NOT NULL CHECK (amount >= 0),
+  source text NOT NULL CHECK (source IN ('personal','business','both')),
+  personal_amount numeric NOT NULL DEFAULT 0 CHECK (personal_amount >= 0),
+  business_amount numeric NOT NULL DEFAULT 0 CHECK (business_amount >= 0),
+  note text,
+  receipt_base64 text,
+  receipt_mime text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.expenses     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "expenses authed all" ON public.expenses;
+CREATE POLICY "expenses authed all" ON public.expenses
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "settings authed all" ON public.app_settings;
+CREATE POLICY "settings authed all" ON public.app_settings
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+COMMIT;`;
+
+function SetupNeededCard({ error }: { error: string }) {
+  const missingTable =
+    error.toLowerCase().includes("could not find the table") ||
+    error.toLowerCase().includes("schema cache") ||
+    error.toLowerCase().includes("does not exist");
+
+  const [showSql, setShowSql] = useState(false);
+
+  if (!missingTable) {
+    return (
+      <View testID="expenses-error" style={styles.errBox}>
+        <Ionicons name="alert-circle" size={16} color={theme.color.error} />
+        <Text style={styles.errText}>{error}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View testID="expenses-setup-needed" style={styles.setupCard}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Ionicons name="construct" size={18} color={theme.color.warning} />
+        <Text style={styles.setupTitle}>One-time setup needed</Text>
+      </View>
+      <Text style={styles.setupBody}>
+        The Expenses feature needs 2 tables in your Supabase project. Run the
+        SQL below once in the Supabase SQL Editor, then reopen this tab.
+      </Text>
+
+      <View style={styles.stepList}>
+        <SetupStep n={1} text="Open Supabase → your project → SQL Editor → New query" />
+        <SetupStep n={2} text="Paste the migration SQL and click Run" />
+        <SetupStep n={3} text="Pull to refresh this screen" />
+      </View>
+
+      <Pressable
+        testID="expenses-setup-toggle-sql"
+        onPress={() => setShowSql((s) => !s)}
+        style={styles.sqlToggle}
+      >
+        <Ionicons
+          name={showSql ? "chevron-up" : "chevron-down"}
+          size={14}
+          color={theme.color.brandPrimary}
+        />
+        <Text style={styles.sqlToggleText}>
+          {showSql ? "Hide SQL" : "Show migration SQL"}
+        </Text>
+      </Pressable>
+
+      {showSql && (
+        <ScrollView
+          horizontal
+          style={styles.sqlBox}
+          testID="expenses-setup-sql"
+        >
+          <Text style={styles.sqlText} selectable>
+            {MIGRATION_SQL}
+          </Text>
+        </ScrollView>
+      )}
+
+      <Text style={styles.setupHint}>
+        Raw error: <Text style={{ color: theme.color.onSurfaceTertiary }}>{error}</Text>
+      </Text>
+    </View>
+  );
+}
+
+function SetupStep({ n, text }: { n: number; text: string }) {
+  return (
+    <View style={styles.stepRow}>
+      <View style={styles.stepBadge}>
+        <Text style={styles.stepBadgeText}>{n}</Text>
+      </View>
+      <Text style={styles.stepText}>{text}</Text>
+    </View>
   );
 }
 
@@ -865,6 +983,68 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md, marginBottom: theme.spacing.md,
   },
   errText: { color: theme.color.error, fontSize: 12, marginTop: 8 },
+
+  setupCard: {
+    backgroundColor: "#1e1608",
+    borderColor: theme.color.warning,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.lg,
+    marginBottom: theme.spacing.lg,
+  },
+  setupTitle: {
+    color: theme.color.warning,
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  setupBody: {
+    color: theme.color.onSurfaceSecondary,
+    fontSize: 13,
+    marginTop: 8,
+    lineHeight: 18,
+  },
+  stepList: { marginTop: 12, gap: 8 },
+  stepRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  stepBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: theme.color.brandTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  stepBadgeText: { color: theme.color.brandPrimary, fontSize: 11, fontWeight: "700" },
+  stepText: { color: theme.color.onSurface, fontSize: 13, flex: 1, lineHeight: 18 },
+  sqlToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 12,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.color.brandPrimary,
+  },
+  sqlToggleText: { color: theme.color.brandPrimary, fontSize: 12, fontWeight: "700" },
+  sqlBox: {
+    marginTop: 8,
+    maxHeight: 220,
+    backgroundColor: "#000",
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.sm,
+    padding: 10,
+  },
+  sqlText: {
+    color: "#a3e5a3",
+    fontSize: 11,
+    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
+  },
+  setupHint: { marginTop: 10, color: theme.color.onSurfaceTertiary, fontSize: 11 },
 
   fab: {
     position: "absolute",
