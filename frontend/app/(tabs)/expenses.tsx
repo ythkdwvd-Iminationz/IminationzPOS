@@ -38,6 +38,22 @@ const monthStartISO = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 };
 
+// Normalize any date-ish value (plain "YYYY-MM-DD", ISO timestamp, Date object)
+// down to a clean "YYYY-MM-DD" string so comparisons are always apples-to-apples,
+// regardless of what shape Supabase/PostgREST returns the `date` column in.
+const normalizeDate = (val: string | null | undefined): string => {
+  if (!val) return "";
+  // Already clean "YYYY-MM-DD"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  // Has a "T" (timestamp) - just take the date part before it
+  const tIndex = val.indexOf("T");
+  if (tIndex > 0) return val.slice(0, tIndex);
+  // Has a space separator (some drivers return "YYYY-MM-DD HH:MM:SS")
+  const spaceIndex = val.indexOf(" ");
+  if (spaceIndex > 0) return val.slice(0, spaceIndex);
+  return val;
+};
+
 const FILTERS: { id: DateFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "today", label: "Today" },
@@ -91,15 +107,19 @@ export default function ExpensesScreen() {
     let out = items;
     if (filter === "today") {
       const t = todayISO();
-      out = out.filter((e) => e.expense_date === t);
+      out = out.filter((e) => normalizeDate(e.expense_date) === t);
     } else if (filter === "month") {
       const m = monthStartISO();
       const t = todayISO();
-      out = out.filter((e) => e.expense_date >= m && e.expense_date <= t);
+      out = out.filter((e) => {
+        const d = normalizeDate(e.expense_date);
+        return d >= m && d <= t;
+      });
     } else if (filter === "custom") {
-      out = out.filter(
-        (e) => e.expense_date >= rangeStart && e.expense_date <= rangeEnd
-      );
+      out = out.filter((e) => {
+        const d = normalizeDate(e.expense_date);
+        return d >= rangeStart && d <= rangeEnd;
+      });
     }
     const q = search.trim().toLowerCase();
     if (q) {
