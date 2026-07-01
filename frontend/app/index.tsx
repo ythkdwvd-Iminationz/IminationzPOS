@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { api, getSession } from "@/src/api/client";
+import { api, getSession, fetchMyRole } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 export default function LoginScreen() {
@@ -26,8 +26,14 @@ export default function LoginScreen() {
   useEffect(() => {
     (async () => {
       const s = await getSession();
-      if (s) router.replace("/(tabs)/dashboard");
-      else setChecking(false);
+      if (s) {
+        const role = await fetchMyRole();
+        router.replace(
+          role === "employee" ? "/(tabs)/billing" : "/(tabs)/dashboard"
+        );
+      } else {
+        setChecking(false);
+      }
     })();
   }, [router]);
 
@@ -36,7 +42,10 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await api.login(email.trim(), password);
-      router.replace("/(tabs)/dashboard");
+      const role = await fetchMyRole();
+      router.replace(
+        role === "employee" ? "/(tabs)/billing" : "/(tabs)/dashboard"
+      );
     } catch (e: any) {
       setError(e.message || "Login failed");
     } finally {

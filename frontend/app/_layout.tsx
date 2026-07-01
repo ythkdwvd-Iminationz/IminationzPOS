@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { RoleProvider } from "@/src/hooks/use-role";
 
 LogBox.ignoreAllLogs(true);
 
@@ -25,7 +26,9 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0D0D0D" } }} />
+        <RoleProvider>
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0D0D0D" } }} />
+        </RoleProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

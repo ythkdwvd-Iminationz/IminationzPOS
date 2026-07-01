@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import * as Clipboard from "expo-clipboard";
 import { expensesApi, Expense, ExpenseOverview } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 
@@ -400,6 +401,29 @@ function SetupNeededCard({ error, onRetry }: { error: string; onRetry: () => voi
     error.toLowerCase().includes("does not exist");
 
   const [showSql, setShowSql] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [diag, setDiag] = useState<{ table: string; ok: boolean; message: string }[] | null>(
+    null
+  );
+  const [diagLoading, setDiagLoading] = useState(false);
+
+  const onCopy = async () => {
+    await Clipboard.setStringAsync(MIGRATION_SQL);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  const onDiagnose = async () => {
+    setDiagLoading(true);
+    try {
+      const res = await expensesApi.diagnose();
+      setDiag(res);
+    } catch {
+      setDiag(null);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
 
   if (!missingTable) {
     return (
@@ -417,21 +441,22 @@ function SetupNeededCard({ error, onRetry }: { error: string; onRetry: () => voi
         <Text style={styles.setupTitle}>One-time setup needed</Text>
       </View>
       <Text style={styles.setupBody}>
-        The Expenses feature needs 2 tables in your Supabase project. Run the
-        SQL below once in the Supabase SQL Editor, then tap Retry.
+        Supabase says it can&apos;t find the <Text style={{ fontWeight: "700" }}>expenses</Text> and{" "}
+        <Text style={{ fontWeight: "700" }}>app_settings</Text> tables. Do this once:
       </Text>
 
       <View style={styles.stepList}>
-        <SetupStep n={1} text="Open Supabase → your project → SQL Editor → New query" />
-        <SetupStep n={2} text="Paste the migration SQL and click Run" />
-        <SetupStep n={3} text="Tap Retry below" />
+        <SetupStep n={1} text="Tap 'Copy SQL' below" />
+        <SetupStep n={2} text="Open Supabase → your project → SQL Editor → New query → Paste → Run" />
+        <SetupStep n={3} text="Check the bottom of SQL Editor: it must say 'Success. No rows returned' (no red error)" />
+        <SetupStep n={4} text="Come back and tap Retry" />
       </View>
 
       <View style={styles.setupNote}>
         <Ionicons name="information-circle-outline" size={14} color={theme.color.brandPrimary} />
         <Text style={styles.setupNoteText}>
-          Already ran the SQL and still seeing this? Supabase&apos;s PostgREST
-          cache is stale. In SQL Editor run just this line and try again:
+          Ran it but still failing? PostgREST cache is stale. Run just this in
+          SQL Editor and tap Retry:
         </Text>
       </View>
       <View style={styles.notifyBox}>
@@ -442,14 +467,26 @@ function SetupNeededCard({ error, onRetry }: { error: string; onRetry: () => voi
 
       <View style={styles.setupBtnRow}>
         <Pressable
-          testID="expenses-setup-retry"
-          onPress={onRetry}
+          testID="expenses-setup-copy"
+          onPress={onCopy}
           style={[styles.setupBtn, { backgroundColor: theme.color.brandPrimary }]}
         >
-          <Ionicons name="refresh" size={14} color={theme.color.onBrandPrimary} />
+          <Ionicons
+            name={copied ? "checkmark" : "copy-outline"}
+            size={14}
+            color={theme.color.onBrandPrimary}
+          />
           <Text style={[styles.setupBtnText, { color: theme.color.onBrandPrimary }]}>
-            Retry
+            {copied ? "Copied!" : "Copy SQL"}
           </Text>
+        </Pressable>
+        <Pressable
+          testID="expenses-setup-retry"
+          onPress={onRetry}
+          style={[styles.setupBtn, { backgroundColor: theme.color.surfaceTertiary }]}
+        >
+          <Ionicons name="refresh" size={14} color={theme.color.onSurface} />
+          <Text style={[styles.setupBtnText, { color: theme.color.onSurface }]}>Retry</Text>
         </Pressable>
         <Pressable
           testID="expenses-setup-toggle-sql"
@@ -462,10 +499,51 @@ function SetupNeededCard({ error, onRetry }: { error: string; onRetry: () => voi
             color={theme.color.brandPrimary}
           />
           <Text style={[styles.setupBtnText, { color: theme.color.brandPrimary }]}>
-            {showSql ? "Hide SQL" : "Show migration SQL"}
+            {showSql ? "Hide SQL" : "View SQL"}
           </Text>
         </Pressable>
+        <Pressable
+          testID="expenses-setup-diagnose"
+          onPress={onDiagnose}
+          style={[styles.setupBtn, { borderColor: theme.color.warning, borderWidth: 1 }]}
+        >
+          {diagLoading ? (
+            <ActivityIndicator size="small" color={theme.color.warning} />
+          ) : (
+            <Ionicons name="pulse" size={14} color={theme.color.warning} />
+          )}
+          <Text style={[styles.setupBtnText, { color: theme.color.warning }]}>Diagnose</Text>
+        </Pressable>
       </View>
+
+      {diag && (
+        <View testID="expenses-setup-diagnose-result" style={styles.diagBox}>
+          <Text style={styles.diagTitle}>Supabase reachability</Text>
+          {diag.map((d) => (
+            <View key={d.table} style={styles.diagRow}>
+              <Ionicons
+                name={d.ok ? "checkmark-circle" : "close-circle"}
+                size={14}
+                color={d.ok ? theme.color.success : theme.color.error}
+              />
+              <Text style={styles.diagTable}>{d.table}</Text>
+              <Text style={styles.diagMsg} numberOfLines={1}>
+                {d.message}
+              </Text>
+            </View>
+          ))}
+          <Text style={styles.diagFooter}>
+            {diag.every((d) => d.ok)
+              ? "All tables reachable — you can dismiss this card by tapping Retry."
+              : diag.some((d) => d.table === "bills" && d.ok) &&
+                diag.some(
+                  (d) => (d.table === "expenses" || d.table === "app_settings") && !d.ok
+                )
+              ? "Your Supabase is connected but the new tables aren't there. The migration didn't run — check SQL Editor for a red error message and re-run it."
+              : "Supabase itself is unreachable — check your internet."}
+          </Text>
+        </View>
+      )}
 
       {showSql && (
         <ScrollView
@@ -1096,6 +1174,19 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.pill,
   },
   setupBtnText: { fontSize: 12, fontWeight: "700" },
+  diagBox: {
+    marginTop: 12,
+    padding: 10,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.color.surface,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+  },
+  diagTitle: { color: theme.color.onSurface, fontWeight: "700", fontSize: 12, marginBottom: 6 },
+  diagRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  diagTable: { color: theme.color.onSurface, fontSize: 12, fontWeight: "600", minWidth: 90 },
+  diagMsg: { color: theme.color.onSurfaceTertiary, fontSize: 11, flex: 1 },
+  diagFooter: { color: theme.color.onSurfaceSecondary, fontSize: 11, marginTop: 8, lineHeight: 15 },
   sqlBox: {
     marginTop: 8,
     maxHeight: 220,

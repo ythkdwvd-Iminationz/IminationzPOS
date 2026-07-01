@@ -150,6 +150,28 @@ function round2(n: number) {
 }
 
 // ---------- Auth ----------
+export type Role = "owner" | "employee";
+
+export async function fetchMyRole(): Promise<Role> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const email = session?.user?.email;
+  if (!email) return "owner";
+  const { data, error } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("email", email)
+    .maybeSingle();
+  // Default to OWNER when:
+  //  - the roles table doesn't exist yet (user hasn't run roles.sql), OR
+  //  - the current user isn't listed at all.
+  // Only downgrade to EMPLOYEE when there is an explicit row saying so.
+  if (error) return "owner";
+  if (!data) return "owner";
+  return ((data.role as Role) || "owner") as Role;
+}
+
 export async function login(email: string, password: string) {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw new Error(error.message);
@@ -549,6 +571,22 @@ export const expensesApi = {
       );
     if (error) throw new Error(error.message);
     return { ok: true };
+  },
+
+  diagnose: async (): Promise<
+    { table: string; ok: boolean; message: string }[]
+  > => {
+    const tables = ["bills", "inventory", "expenses", "app_settings"];
+    const out: { table: string; ok: boolean; message: string }[] = [];
+    for (const t of tables) {
+      const { error } = await supabase.from(t).select("*").limit(1);
+      if (error) {
+        out.push({ table: t, ok: false, message: error.message });
+      } else {
+        out.push({ table: t, ok: true, message: "reachable" });
+      }
+    }
+    return out;
   },
 };
 

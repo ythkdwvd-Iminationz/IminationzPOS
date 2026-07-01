@@ -27,6 +27,16 @@ import {
   exportInventoryCsv,
   exportInventoryXlsx,
 } from "@/src/utils/export";
+import { DateRangeModal } from "./sales";
+
+const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const monthStartISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+};
 
 export default function ReportsScreen() {
   const [daily, setDaily] = useState<DailyReport | null>(null);
@@ -34,6 +44,13 @@ export default function ReportsScreen() {
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [whatsapp, setWhatsapp] = useState<WhatsAppClosing | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [exportRange, setExportRange] = useState<"month" | "today" | "custom">(
+    "month"
+  );
+  const [rangeStart, setRangeStart] = useState<string>(monthStartISO());
+  const [rangeEnd, setRangeEnd] = useState<string>(todayISO());
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,8 +105,12 @@ export default function ReportsScreen() {
 
   const openExport = async (kind: "sales" | "inventory", ext: "xlsx" | "csv") => {
     try {
-      if (kind === "sales" && ext === "xlsx") await exportSalesXlsx("month");
-      else if (kind === "sales" && ext === "csv") await exportSalesCsv("month");
+      const isSalesCustom = kind === "sales" && exportRange === "custom";
+      const filter = kind === "sales" ? exportRange : "month";
+      const start = isSalesCustom ? rangeStart : undefined;
+      const end = isSalesCustom ? rangeEnd : undefined;
+      if (kind === "sales" && ext === "xlsx") await exportSalesXlsx(filter, start, end);
+      else if (kind === "sales" && ext === "csv") await exportSalesCsv(filter, start, end);
       else if (kind === "inventory" && ext === "xlsx") await exportInventoryXlsx();
       else if (kind === "inventory" && ext === "csv") await exportInventoryCsv();
     } catch (e) {
@@ -204,7 +225,56 @@ export default function ReportsScreen() {
           {/* Exports */}
           <Text style={styles.sectionTitle}>Export Data</Text>
           <View style={styles.card}>
-            <Text style={styles.exportLabel}>Sales (this month)</Text>
+            <Text style={styles.exportLabel}>Sales range</Text>
+            <View style={styles.rangeRow}>
+              {(["today", "month", "custom"] as const).map((r) => {
+                const active = exportRange === r;
+                return (
+                  <Pressable
+                    key={r}
+                    testID={`export-range-${r}`}
+                    onPress={() => {
+                      setExportRange(r);
+                      if (r === "custom") setPickerOpen(true);
+                    }}
+                    style={[
+                      styles.rangeChip,
+                      {
+                        borderColor: active ? theme.color.brandPrimary : theme.color.border,
+                        backgroundColor: active ? theme.color.brandTertiary : theme.color.surfaceSecondary,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: active ? theme.color.brandPrimary : theme.color.onSurfaceSecondary,
+                        fontSize: 12,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {r === "today" ? "Today" : r === "month" ? "This Month" : "Custom"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {exportRange === "custom" && (
+              <Pressable
+                testID="export-range-edit"
+                onPress={() => setPickerOpen(true)}
+                style={styles.rangePill}
+              >
+                <Ionicons name="calendar" size={13} color={theme.color.brandPrimary} />
+                <Text style={styles.rangePillText}>
+                  {rangeStart} → {rangeEnd}
+                </Text>
+                <Ionicons name="create-outline" size={13} color={theme.color.brandPrimary} />
+              </Pressable>
+            )}
+
+            <Text style={[styles.exportLabel, { marginTop: theme.spacing.md }]}>
+              Sales export
+            </Text>
             <View style={styles.exportRow}>
               <Pressable testID="export-sales-xlsx" onPress={() => openExport("sales", "xlsx")} style={styles.exBtn}>
                 <Ionicons name="document-attach" size={14} color={theme.color.onBrandPrimary} />
@@ -250,6 +320,18 @@ export default function ReportsScreen() {
           )}
         </ScrollView>
       )}
+
+      <DateRangeModal
+        visible={pickerOpen}
+        start={rangeStart}
+        end={rangeEnd}
+        onCancel={() => setPickerOpen(false)}
+        onApply={(s, e) => {
+          setRangeStart(s);
+          setRangeEnd(e);
+          setPickerOpen(false);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -418,4 +500,28 @@ const styles = StyleSheet.create({
   },
   exBtnAlt: { backgroundColor: theme.color.surfaceTertiary },
   exBtnText: { color: theme.color.onBrandPrimary, fontSize: 13, fontWeight: "700" },
+  rangeRow: { flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" },
+  rangeChip: {
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  rangePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.color.brandPrimary,
+    backgroundColor: theme.color.brandTertiary,
+  },
+  rangePillText: { color: theme.color.onBrandTertiary, fontSize: 12, fontWeight: "600" },
 });
