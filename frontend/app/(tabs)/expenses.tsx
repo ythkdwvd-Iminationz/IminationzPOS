@@ -25,17 +25,16 @@ import { theme, formatINRPlain } from "@/src/theme";
 type Source = "personal" | "business" | "both";
 type DateFilter = "all" | "today" | "month" | "custom";
 
-const todayISO = () => {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-};
-
+// IST-safe date helpers — must match the logic in src/api/client.ts exactly.
+// Using device-local Date() here caused a mismatch: the backend computes
+// "today"/"month start" in IST (Asia/Kolkata), but this screen was using
+// the device's local timezone, which silently disagreed near midnight or
+// on devices set to a non-IST timezone — making filters return nothing.
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const todayISO = () => new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
 const monthStartISO = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  const d = new Date(Date.now() + IST_OFFSET_MS);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`;
 };
 
 // Normalize any date-ish value (plain "YYYY-MM-DD", ISO timestamp, Date object)
