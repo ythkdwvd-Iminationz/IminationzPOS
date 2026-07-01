@@ -1,7 +1,14 @@
 -- Iminationz POS — Expenses feature migration
 -- Run this in Supabase SQL Editor once. Idempotent.
+-- If the app still says "Could not find the table" after running this,
+-- run the final NOTIFY statement (at the bottom) again on its own — it
+-- tells PostgREST to reload its schema cache.
 
 BEGIN;
+
+-- gen_random_uuid() lives in pgcrypto (already enabled on Supabase, but
+-- be defensive so this file also works on plain Postgres).
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Key/value settings table (holds personal_fund_total etc.)
 CREATE TABLE IF NOT EXISTS public.app_settings (
@@ -30,7 +37,7 @@ CREATE TABLE IF NOT EXISTS public.expenses (
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_expenses_date ON public.expenses(expense_date DESC);
+CREATE INDEX IF NOT EXISTS idx_expenses_date   ON public.expenses(expense_date DESC);
 CREATE INDEX IF NOT EXISTS idx_expenses_source ON public.expenses(source);
 
 -- Enable RLS
@@ -46,6 +53,9 @@ DROP POLICY IF EXISTS "settings authed all" ON public.app_settings;
 CREATE POLICY "settings authed all" ON public.app_settings
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
+-- Also allow reads to the bills view/table for the summary (the existing
+-- `bills` table already has its own policies from the base migration).
+
 -- Aggregated view for quick summaries
 CREATE OR REPLACE VIEW public.v_expense_summary AS
 SELECT
@@ -56,3 +66,7 @@ SELECT
 FROM public.expenses;
 
 COMMIT;
+
+-- Ask PostgREST to refresh its schema cache so /rest/v1/expenses starts
+-- working immediately without a wait / restart.
+NOTIFY pgrst, 'reload schema';

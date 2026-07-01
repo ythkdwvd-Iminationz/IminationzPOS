@@ -104,7 +104,7 @@ export default function ExpensesScreen() {
           }
         >
           {error && (
-            <SetupNeededCard error={error} />
+            <SetupNeededCard error={error} onRetry={load} />
           )}
 
           {overview && (
@@ -348,8 +348,10 @@ function ExpenseRow({
 
 /* ---------------- Setup card ---------------- */
 
-const MIGRATION_SQL = `-- Iminationz POS — Expenses migration (run once in Supabase SQL Editor)
+const MIGRATION_SQL = `-- Run once in Supabase SQL Editor
 BEGIN;
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS public.app_settings (
   key text PRIMARY KEY,
@@ -386,9 +388,12 @@ DROP POLICY IF EXISTS "settings authed all" ON public.app_settings;
 CREATE POLICY "settings authed all" ON public.app_settings
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-COMMIT;`;
+COMMIT;
 
-function SetupNeededCard({ error }: { error: string }) {
+-- Force PostgREST to notice the new tables
+NOTIFY pgrst, 'reload schema';`;
+
+function SetupNeededCard({ error, onRetry }: { error: string; onRetry: () => void }) {
   const missingTable =
     error.toLowerCase().includes("could not find the table") ||
     error.toLowerCase().includes("schema cache") ||
@@ -413,29 +418,54 @@ function SetupNeededCard({ error }: { error: string }) {
       </View>
       <Text style={styles.setupBody}>
         The Expenses feature needs 2 tables in your Supabase project. Run the
-        SQL below once in the Supabase SQL Editor, then reopen this tab.
+        SQL below once in the Supabase SQL Editor, then tap Retry.
       </Text>
 
       <View style={styles.stepList}>
         <SetupStep n={1} text="Open Supabase → your project → SQL Editor → New query" />
         <SetupStep n={2} text="Paste the migration SQL and click Run" />
-        <SetupStep n={3} text="Pull to refresh this screen" />
+        <SetupStep n={3} text="Tap Retry below" />
       </View>
 
-      <Pressable
-        testID="expenses-setup-toggle-sql"
-        onPress={() => setShowSql((s) => !s)}
-        style={styles.sqlToggle}
-      >
-        <Ionicons
-          name={showSql ? "chevron-up" : "chevron-down"}
-          size={14}
-          color={theme.color.brandPrimary}
-        />
-        <Text style={styles.sqlToggleText}>
-          {showSql ? "Hide SQL" : "Show migration SQL"}
+      <View style={styles.setupNote}>
+        <Ionicons name="information-circle-outline" size={14} color={theme.color.brandPrimary} />
+        <Text style={styles.setupNoteText}>
+          Already ran the SQL and still seeing this? Supabase&apos;s PostgREST
+          cache is stale. In SQL Editor run just this line and try again:
         </Text>
-      </Pressable>
+      </View>
+      <View style={styles.notifyBox}>
+        <Text style={styles.notifyText} selectable>
+          NOTIFY pgrst, &apos;reload schema&apos;;
+        </Text>
+      </View>
+
+      <View style={styles.setupBtnRow}>
+        <Pressable
+          testID="expenses-setup-retry"
+          onPress={onRetry}
+          style={[styles.setupBtn, { backgroundColor: theme.color.brandPrimary }]}
+        >
+          <Ionicons name="refresh" size={14} color={theme.color.onBrandPrimary} />
+          <Text style={[styles.setupBtnText, { color: theme.color.onBrandPrimary }]}>
+            Retry
+          </Text>
+        </Pressable>
+        <Pressable
+          testID="expenses-setup-toggle-sql"
+          onPress={() => setShowSql((s) => !s)}
+          style={[styles.setupBtn, { borderColor: theme.color.brandPrimary, borderWidth: 1 }]}
+        >
+          <Ionicons
+            name={showSql ? "chevron-up" : "chevron-down"}
+            size={14}
+            color={theme.color.brandPrimary}
+          />
+          <Text style={[styles.setupBtnText, { color: theme.color.brandPrimary }]}>
+            {showSql ? "Hide SQL" : "Show migration SQL"}
+          </Text>
+        </Pressable>
+      </View>
 
       {showSql && (
         <ScrollView
@@ -1030,6 +1060,42 @@ const styles = StyleSheet.create({
     borderColor: theme.color.brandPrimary,
   },
   sqlToggleText: { color: theme.color.brandPrimary, fontSize: 12, fontWeight: "700" },
+  setupNote: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 12,
+    alignItems: "flex-start",
+  },
+  setupNoteText: {
+    color: theme.color.onSurfaceSecondary,
+    fontSize: 12,
+    lineHeight: 16,
+    flex: 1,
+  },
+  notifyBox: {
+    marginTop: 6,
+    backgroundColor: "#000",
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  notifyText: {
+    color: "#a3e5a3",
+    fontSize: 12,
+    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
+  },
+  setupBtnRow: { flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" },
+  setupBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: theme.radius.pill,
+  },
+  setupBtnText: { fontSize: 12, fontWeight: "700" },
   sqlBox: {
     marginTop: 8,
     maxHeight: 220,
