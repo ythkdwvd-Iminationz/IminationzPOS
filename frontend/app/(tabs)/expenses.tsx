@@ -19,9 +19,11 @@ import { useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as Clipboard from "expo-clipboard";
 import { expensesApi, Expense, ExpenseOverview } from "@/src/api/client";
+import { DateRangeModal } from "./sales";
 import { theme, formatINRPlain } from "@/src/theme";
 
 type Source = "personal" | "business" | "both";
+type DateFilter = "all" | "today" | "month" | "custom";
 
 const todayISO = () => {
   const d = new Date();
@@ -30,6 +32,18 @@ const todayISO = () => {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 };
+
+const monthStartISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+};
+
+const FILTERS: { id: DateFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "today", label: "Today" },
+  { id: "month", label: "This Month" },
+  { id: "custom", label: "Custom" },
+];
 
 export default function ExpensesScreen() {
   const [overview, setOverview] = useState<ExpenseOverview | null>(null);
@@ -40,6 +54,14 @@ export default function ExpensesScreen() {
 
   const [addOpen, setAddOpen] = useState(false);
   const [fundOpen, setFundOpen] = useState(false);
+  const [detail, setDetail] = useState<Expense | null>(null);
+
+  // filters
+  const [filter, setFilter] = useState<DateFilter>("all");
+  const [rangeStart, setRangeStart] = useState<string>(monthStartISO());
+  const [rangeEnd, setRangeEnd] = useState<string>(todayISO());
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +85,32 @@ export default function ExpensesScreen() {
       load();
     }, [load])
   );
+
+  // Filter + search
+  const filteredItems = useMemo(() => {
+    let out = items;
+    if (filter === "today") {
+      const t = todayISO();
+      out = out.filter((e) => e.expense_date === t);
+    } else if (filter === "month") {
+      const m = monthStartISO();
+      const t = todayISO();
+      out = out.filter((e) => e.expense_date >= m && e.expense_date <= t);
+    } else if (filter === "custom") {
+      out = out.filter(
+        (e) => e.expense_date >= rangeStart && e.expense_date <= rangeEnd
+      );
+    }
+    const q = search.trim().toLowerCase();
+    if (q) {
+      out = out.filter((e) => {
+        const note = (e.note || "").toLowerCase();
+        const amt = String(e.amount);
+        return note.includes(q) || amt.includes(q);
+      });
+    }
+    return out;
+  }, [items, filter, rangeStart, rangeEnd, search]);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -152,26 +200,112 @@ export default function ExpensesScreen() {
 
           <View style={styles.listHeader}>
             <Text style={styles.listTitle}>Recent</Text>
-            <Text style={styles.listCount}>{items.length}</Text>
+            <Text style={styles.listCount}>{filteredItems.length}</Text>
           </View>
 
-          {items.length === 0 ? (
+          {/* Search */}
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={16} color={theme.color.onSurfaceTertiary} />
+            <TextInput
+              testID="expenses-search"
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search by note or amount"
+              placeholderTextColor={theme.color.onSurfaceTertiary}
+              style={styles.searchInput}
+            />
+            {search.length > 0 && (
+              <Pressable
+                testID="expenses-search-clear"
+                onPress={() => setSearch("")}
+                style={styles.searchClear}
+              >
+                <Ionicons name="close" size={14} color={theme.color.onSurfaceSecondary} />
+              </Pressable>
+            )}
+          </View>
+
+          {/* Date filter chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipRow}
+            style={styles.chipRowWrap}
+          >
+            {FILTERS.map((f) => {
+              const active = f.id === filter;
+              return (
+                <Pressable
+                  key={f.id}
+                  testID={`expenses-filter-${f.id}`}
+                  onPress={() => {
+                    setFilter(f.id);
+                    if (f.id === "custom") setPickerOpen(true);
+                  }}
+                  style={[
+                    styles.chip,
+                    {
+                      borderColor: active
+                        ? theme.color.brandPrimary
+                        : theme.color.border,
+                      backgroundColor: active
+                        ? theme.color.brandTertiary
+                        : theme.color.surfaceSecondary,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active
+                        ? theme.color.brandPrimary
+                        : theme.color.onSurfaceSecondary,
+                      fontSize: 12,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {f.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          {filter === "custom" && (
+            <Pressable
+              testID="expenses-range-chip"
+              onPress={() => setPickerOpen(true)}
+              style={styles.rangeChip}
+            >
+              <Ionicons name="calendar" size={13} color={theme.color.brandPrimary} />
+              <Text style={styles.rangeChipText}>
+                {rangeStart} → {rangeEnd}
+              </Text>
+              <Ionicons name="create-outline" size={13} color={theme.color.brandPrimary} />
+            </Pressable>
+          )}
+
+          {filteredItems.length === 0 ? (
             <View style={styles.emptyBox} testID="expenses-empty">
               <Ionicons
                 name="wallet-outline"
                 size={42}
                 color={theme.color.onSurfaceTertiary}
               />
-              <Text style={styles.emptyText}>No expenses yet</Text>
+              <Text style={styles.emptyText}>
+                {items.length === 0 ? "No expenses yet" : "No matches"}
+              </Text>
               <Text style={styles.emptyHint}>
-                Tap the + button to add your first entry
+                {items.length === 0
+                  ? "Tap the + button to add your first entry"
+                  : "Try clearing the search or date filter"}
               </Text>
             </View>
           ) : (
-            items.map((it) => (
+            filteredItems.map((it) => (
               <ExpenseRow
                 key={it.id}
                 item={it}
+                onOpen={() => setDetail(it)}
                 onDelete={async () => {
                   await expensesApi.remove(it.id);
                   load();
@@ -208,7 +342,199 @@ export default function ExpensesScreen() {
           load();
         }}
       />
+
+      <DateRangeModal
+        visible={pickerOpen}
+        start={rangeStart}
+        end={rangeEnd}
+        onCancel={() => setPickerOpen(false)}
+        onApply={(s, e) => {
+          setRangeStart(s);
+          setRangeEnd(e);
+          setPickerOpen(false);
+        }}
+      />
+
+      <ExpenseDetailModal
+        item={detail}
+        onClose={() => setDetail(null)}
+        onDelete={async (id) => {
+          await expensesApi.remove(id);
+          setDetail(null);
+          load();
+        }}
+      />
     </SafeAreaView>
+  );
+}
+
+/* ---------------- Detail Modal ---------------- */
+
+function ExpenseDetailModal({
+  item,
+  onClose,
+  onDelete,
+}: {
+  item: Expense | null;
+  onClose: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+
+  if (!item) return null;
+
+  return (
+    <Modal
+      visible={!!item}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalWrap}>
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Expense Details</Text>
+            <Pressable testID="expense-detail-close" onPress={onClose} style={styles.closeBtn}>
+              <Ionicons name="close" size={22} color={theme.color.onSurface} />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
+            {/* Amount block */}
+            <View style={styles.detailAmountBlock}>
+              <Text style={styles.detailAmount}>{formatINRPlain(item.amount)}</Text>
+              <SourcePill source={item.source} />
+            </View>
+
+            {/* Fields grid */}
+            <DetailRow label="Date" value={item.expense_date} testID="detail-date" />
+            {item.source === "both" && (
+              <>
+                <DetailRow
+                  label="Personal"
+                  value={formatINRPlain(item.personal_amount)}
+                  testID="detail-personal"
+                />
+                <DetailRow
+                  label="Business"
+                  value={formatINRPlain(item.business_amount)}
+                  testID="detail-business"
+                />
+              </>
+            )}
+            <DetailRow
+              label="Created"
+              value={new Date(item.created_at).toLocaleString()}
+              testID="detail-created"
+            />
+
+            {item.note ? (
+              <View style={styles.detailNoteBox} testID="detail-note">
+                <Text style={styles.detailLabel}>Note</Text>
+                <Text style={styles.detailNote}>{item.note}</Text>
+              </View>
+            ) : null}
+
+            {item.receipt_base64 ? (
+              <>
+                <Text style={[styles.detailLabel, { marginTop: 16 }]}>Receipt</Text>
+                <Pressable
+                  testID="detail-receipt"
+                  onPress={() => setReceiptOpen(true)}
+                >
+                  <Image
+                    source={{
+                      uri: `data:${item.receipt_mime || "image/jpeg"};base64,${item.receipt_base64}`,
+                    }}
+                    style={styles.detailReceipt}
+                  />
+                  <Text style={styles.detailReceiptHint}>Tap to view full size</Text>
+                </Pressable>
+              </>
+            ) : (
+              <View style={styles.detailNoReceipt}>
+                <Ionicons name="image-outline" size={16} color={theme.color.onSurfaceTertiary} />
+                <Text style={styles.detailNoReceiptText}>No receipt attached</Text>
+              </View>
+            )}
+
+            <Pressable
+              testID="detail-delete-btn"
+              onPress={() => setConfirm(true)}
+              style={styles.detailDelBtn}
+            >
+              <Ionicons name="trash-outline" size={16} color="#fff" />
+              <Text style={styles.detailDelText}>Delete Expense</Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </View>
+
+      <Modal
+        transparent
+        visible={receiptOpen}
+        animationType="fade"
+        onRequestClose={() => setReceiptOpen(false)}
+      >
+        <Pressable style={styles.receiptOverlay} onPress={() => setReceiptOpen(false)}>
+          <Image
+            source={{
+              uri: `data:${item.receipt_mime || "image/jpeg"};base64,${item.receipt_base64}`,
+            }}
+            style={styles.receiptFull}
+            resizeMode="contain"
+          />
+        </Pressable>
+      </Modal>
+
+      <Modal transparent visible={confirm} animationType="fade">
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmBox}>
+            <Text style={styles.confirmTitle}>Delete this expense?</Text>
+            <Text style={styles.confirmBody}>
+              This will restore {formatINRPlain(item.amount)} to your balances.
+            </Text>
+            <View style={styles.confirmRow}>
+              <Pressable
+                onPress={() => setConfirm(false)}
+                style={[styles.confirmBtn, { backgroundColor: theme.color.surfaceTertiary }]}
+              >
+                <Text style={styles.confirmBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                testID="detail-delete-confirm"
+                onPress={() => {
+                  setConfirm(false);
+                  onDelete(item.id);
+                }}
+                style={[styles.confirmBtn, { backgroundColor: theme.color.error }]}
+              >
+                <Text style={[styles.confirmBtnText, { color: "#fff" }]}>Delete</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </Modal>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  testID,
+}: {
+  label: string;
+  value: string;
+  testID?: string;
+}) {
+  return (
+    <View style={styles.detailRow} testID={testID}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -254,15 +580,20 @@ function SummaryCard({
 function ExpenseRow({
   item,
   onDelete,
+  onOpen,
 }: {
   item: Expense;
   onDelete: () => void;
+  onOpen: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
-  const [showReceipt, setShowReceipt] = useState(false);
   return (
     <>
-      <View style={styles.row} testID={`expense-row-${item.id}`}>
+      <Pressable
+        testID={`expense-row-${item.id}`}
+        onPress={onOpen}
+        style={styles.row}
+      >
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Text style={styles.rowAmount}>{formatINRPlain(item.amount)}</Text>
@@ -283,25 +614,26 @@ function ExpenseRow({
           ) : null}
         </View>
         {item.receipt_base64 ? (
-          <Pressable
-            testID={`expense-receipt-${item.id}`}
-            onPress={() => setShowReceipt(true)}
-            style={styles.thumb}
-          >
+          <View style={styles.thumb} testID={`expense-receipt-${item.id}`}>
             <Image
-              source={{ uri: `data:${item.receipt_mime || "image/jpeg"};base64,${item.receipt_base64}` }}
+              source={{
+                uri: `data:${item.receipt_mime || "image/jpeg"};base64,${item.receipt_base64}`,
+              }}
               style={{ width: 46, height: 46, borderRadius: 6 }}
             />
-          </Pressable>
+          </View>
         ) : null}
         <Pressable
           testID={`expense-delete-${item.id}`}
-          onPress={() => setConfirm(true)}
+          onPress={(e) => {
+            e.stopPropagation();
+            setConfirm(true);
+          }}
           style={styles.delBtn}
         >
           <Ionicons name="trash-outline" size={16} color={theme.color.error} />
         </Pressable>
-      </View>
+      </Pressable>
 
       <Modal transparent visible={confirm} animationType="fade">
         <View style={styles.confirmOverlay}>
@@ -330,18 +662,6 @@ function ExpenseRow({
             </View>
           </View>
         </View>
-      </Modal>
-
-      <Modal transparent visible={showReceipt} animationType="fade" onRequestClose={() => setShowReceipt(false)}>
-        <Pressable style={styles.receiptOverlay} onPress={() => setShowReceipt(false)}>
-          {item.receipt_base64 ? (
-            <Image
-              source={{ uri: `data:${item.receipt_mime || "image/jpeg"};base64,${item.receipt_base64}` }}
-              style={styles.receiptFull}
-              resizeMode="contain"
-            />
-          ) : null}
-        </Pressable>
       </Modal>
     </>
   );
@@ -1337,4 +1657,126 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   receiptFull: { width: "100%", height: "100%" },
+
+  /* filters */
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.spacing.md,
+    marginTop: 6,
+  },
+  searchInput: { flex: 1, paddingVertical: 12, color: theme.color.onSurface, fontSize: 15 },
+  searchClear: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: theme.color.surfaceTertiary,
+    alignItems: "center", justifyContent: "center",
+  },
+  chipRowWrap: { marginTop: 10, marginBottom: 4 },
+  chipRow: { gap: 8, alignItems: "center", paddingRight: theme.spacing.md },
+  chip: {
+    height: 32,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  rangeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    marginTop: 4,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.color.brandPrimary,
+    backgroundColor: theme.color.brandTertiary,
+  },
+  rangeChipText: { color: theme.color.onBrandTertiary, fontSize: 12, fontWeight: "600" },
+
+  /* detail modal */
+  detailAmountBlock: {
+    alignItems: "flex-start",
+    gap: 8,
+    paddingVertical: 16,
+    borderBottomColor: theme.color.divider,
+    borderBottomWidth: 1,
+    marginBottom: 8,
+  },
+  detailAmount: {
+    color: theme.color.brandPrimary,
+    fontSize: 34,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomColor: theme.color.divider,
+    borderBottomWidth: 1,
+  },
+  detailLabel: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  detailValue: { color: theme.color.onSurface, fontSize: 14, fontWeight: "700" },
+  detailNoteBox: { marginTop: 12 },
+  detailNote: {
+    color: theme.color.onSurface,
+    fontSize: 14,
+    marginTop: 4,
+    lineHeight: 20,
+    backgroundColor: theme.color.surfaceSecondary,
+    padding: 12,
+    borderRadius: theme.radius.md,
+  },
+  detailReceipt: {
+    width: "100%",
+    height: 260,
+    borderRadius: theme.radius.md,
+    marginTop: 6,
+    backgroundColor: theme.color.surfaceSecondary,
+  },
+  detailReceiptHint: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 11,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  detailNoReceipt: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: theme.spacing.md,
+    backgroundColor: theme.color.surfaceSecondary,
+    borderRadius: theme.radius.md,
+  },
+  detailNoReceiptText: { color: theme.color.onSurfaceTertiary, fontSize: 12 },
+  detailDelBtn: {
+    marginTop: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: theme.color.error,
+    paddingVertical: 14,
+    borderRadius: theme.radius.md,
+  },
+  detailDelText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 });

@@ -26,16 +26,23 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: theme.color.brandPrimary,
         tabBarInactiveTintColor: theme.color.onSurfaceTertiary,
+        tabBarShowLabel: true,
         tabBarStyle: {
           backgroundColor: theme.color.surfaceSecondary,
           borderTopColor: theme.color.border,
           borderTopWidth: 1,
-          height: 64 + insets.bottom,
-          paddingBottom: 10 + insets.bottom,
-          paddingTop: 8,
+          height: 68 + insets.bottom,
+          paddingBottom: 8 + insets.bottom,
+          paddingTop: 6,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600", marginTop: 2 },
-        tabBarItemStyle: { paddingVertical: 2 },
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: "600",
+          marginTop: 2,
+          marginBottom: 0,
+        },
+        tabBarIconStyle: { marginTop: 0 },
+        tabBarItemStyle: { paddingVertical: 0 },
       }}
     >
       <Tabs.Screen

@@ -156,20 +156,31 @@ export async function fetchMyRole(): Promise<Role> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  const email = session?.user?.email;
+  const email = session?.user?.email?.toLowerCase().trim();
   if (!email) return "owner";
-  const { data, error } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("email", email)
-    .maybeSingle();
-  // Default to OWNER when:
-  //  - the roles table doesn't exist yet (user hasn't run roles.sql), OR
-  //  - the current user isn't listed at all.
-  // Only downgrade to EMPLOYEE when there is an explicit row saying so.
-  if (error) return "owner";
-  if (!data) return "owner";
-  return ((data.role as Role) || "owner") as Role;
+
+  // Read the roles table (permissive policy in roles.sql v3 lets any
+  // authenticated user do this).
+  const probe = await supabase.from("user_roles").select("email,role").limit(50);
+
+  if (probe.error) {
+    // Any read error — table missing, RLS recursion, network, etc. —
+    // means we cannot reliably determine the role. Default to OWNER
+    // so the app owner never accidentally locks themselves out.
+    // (Employee restriction only activates when we can prove the
+    // user is listed as an employee.)
+    return "owner";
+  }
+
+  // Table read succeeded. Find this user's row.
+  const myRow = (probe.data || []).find(
+    (r: any) => String(r.email).toLowerCase().trim() === email
+  );
+  if (!myRow) {
+    // Table exists and readable, but this user isn't listed — restrict.
+    return "employee";
+  }
+  return (myRow.role as Role) || "employee";
 }
 
 export async function login(email: string, password: string) {

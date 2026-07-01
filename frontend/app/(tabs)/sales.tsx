@@ -89,7 +89,9 @@ export default function SalesScreen() {
           {isEmployee ? "Today's Sales" : "Sales History"}
         </Text>
         <Text style={styles.subtitle}>
-          {bills.length} bills · {formatINRPlain(totals.sales)}
+          {isEmployee
+            ? `${bills.length} bills`
+            : `${bills.length} bills · ${formatINRPlain(totals.sales)}`}
         </Text>
       </View>
 
@@ -191,45 +193,58 @@ export default function SalesScreen() {
           renderItem={({ item }) => (
             <Pressable
               testID={`bill-row-${item.bill_number}`}
-              onPress={() => router.push(`/invoice/${item.id}`)}
+              onPress={() =>
+                isEmployee ? null : router.push(`/invoice/${item.id}`)
+              }
               style={styles.row}
             >
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Text style={styles.billNo}>{item.bill_number}</Text>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      {
-                        backgroundColor:
-                          item.payment_status === "PAID"
-                            ? theme.color.success
-                            : theme.color.error,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.statusText}>{item.payment_status}</Text>
-                  </View>
+                  {!isEmployee && (
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        {
+                          backgroundColor:
+                            item.payment_status === "PAID"
+                              ? theme.color.success
+                              : theme.color.error,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.statusText}>{item.payment_status}</Text>
+                    </View>
+                  )}
                 </View>
                 <Text style={styles.meta}>
                   {item.date} · {item.day} · {item.time}
                 </Text>
-                <Text style={styles.meta}>
-                  Mobile: {item.customer_mobile || "—"} · Cash{" "}
-                  {formatINRPlain(item.cash_amount)} · UPI{" "}
-                  {formatINRPlain(item.upi_amount)}
-                </Text>
-              </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={styles.amount}>
-                  {formatINRPlain(item.final_amount)}
-                </Text>
-                {item.discount > 0 && (
-                  <Text style={styles.discount}>
-                    -{formatINRPlain(item.discount)} off
+                {isEmployee ? (
+                  <Text style={styles.meta}>
+                    Mobile: {item.customer_mobile || "—"}
+                    {item.customer_name ? ` · ${item.customer_name}` : ""}
+                  </Text>
+                ) : (
+                  <Text style={styles.meta}>
+                    Mobile: {item.customer_mobile || "—"} · Cash{" "}
+                    {formatINRPlain(item.cash_amount)} · UPI{" "}
+                    {formatINRPlain(item.upi_amount)}
                   </Text>
                 )}
               </View>
+              {!isEmployee && (
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={styles.amount}>
+                    {formatINRPlain(item.final_amount)}
+                  </Text>
+                  {item.discount > 0 && (
+                    <Text style={styles.discount}>
+                      -{formatINRPlain(item.discount)} off
+                    </Text>
+                  )}
+                </View>
+              )}
             </Pressable>
           )}
         />
