@@ -104,8 +104,12 @@ function salesSheets(bills: Bill[]) {
   return { salesRows, lineRows, summary };
 }
 
-export async function exportSalesXlsx(filter: string = "month") {
-  const bills = await api.listBills({ filter });
+export async function exportSalesXlsx(
+  filter: string = "month",
+  start?: string,
+  end?: string
+) {
+  const bills = await api.listBills({ filter, start_date: start, end_date: end });
   const { salesRows, lineRows, summary } = salesSheets(bills);
   const wb = bookFromSheets([
     { name: "Sales", rows: salesRows },
@@ -113,18 +117,24 @@ export async function exportSalesXlsx(filter: string = "month") {
     { name: "Summary", rows: summary },
   ]);
   const base64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+  const tag = filter === "custom" && start && end ? `${start}_to_${end}` : filter;
   await downloadOrShare(
-    `iminationz_sales_${filter}_${todayStamp()}.xlsx`,
+    `iminationz_sales_${tag}_${todayStamp()}.xlsx`,
     base64,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   );
 }
 
-export async function exportSalesCsv(filter: string = "month") {
-  const bills = await api.listBills({ filter });
+export async function exportSalesCsv(
+  filter: string = "month",
+  start?: string,
+  end?: string
+) {
+  const bills = await api.listBills({ filter, start_date: start, end_date: end });
   const { salesRows } = salesSheets(bills);
+  const tag = filter === "custom" && start && end ? `${start}_to_${end}` : filter;
   await downloadCsv(
-    `iminationz_sales_${filter}_${todayStamp()}.csv`,
+    `iminationz_sales_${tag}_${todayStamp()}.csv`,
     csvFromRows(salesRows)
   );
 }

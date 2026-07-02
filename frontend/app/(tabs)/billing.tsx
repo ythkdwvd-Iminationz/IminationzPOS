@@ -14,8 +14,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, InventoryItem, CustomerInfo } from "@/src/api/client";
+import { api, InventoryItem, CustomerInfo, clearToken } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
+import { useRole } from "@/src/hooks/use-role";
 
 // Display-only rounding: 120.5+ -> 121, 120.4 and below -> 120 (standard Math.round)
 const fmt = (n: number) => formatINRPlain(Math.round(n));
@@ -27,6 +28,13 @@ interface CartLine {
 
 export default function BillingScreen() {
   const router = useRouter();
+  const { role } = useRole();
+  const isEmployee = role === "employee";
+
+  const onLogout = async () => {
+    await clearToken();
+    router.replace("/");
+  };
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -285,10 +293,24 @@ export default function BillingScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>New Bill</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>New Bill</Text>
+            {isEmployee && (
+              <Text style={styles.roleTag}>Employee mode · Billing only</Text>
+            )}
+          </View>
           <Pressable testID="reset-bill" onPress={reset} style={styles.resetBtn}>
             <Ionicons name="refresh" size={18} color={theme.color.onSurface} />
           </Pressable>
+          {isEmployee && (
+            <Pressable
+              testID="employee-logout"
+              onPress={onLogout}
+              style={[styles.resetBtn, { marginLeft: 8 }]}
+            >
+              <Ionicons name="log-out-outline" size={18} color={theme.color.onSurface} />
+            </Pressable>
+          )}
         </View>
 
         {/* Main content area */}
@@ -740,6 +762,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   title: { color: theme.color.onSurface, fontSize: 22, fontWeight: "700" },
+  roleTag: { color: theme.color.brandPrimary, fontSize: 11, fontWeight: "600", marginTop: 2, letterSpacing: 0.5 },
   resetBtn: {
     width: 40,
     height: 40,

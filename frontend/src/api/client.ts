@@ -101,6 +101,31 @@ export interface WhatsAppClosing {
   links: { number: string; url: string }[];
 }
 
+export interface Expense {
+  id: string;
+  expense_date: string;
+  amount: number;
+  source: "personal" | "business" | "both";
+  personal_amount: number;
+  business_amount: number;
+  note: string | null;
+  receipt_base64: string | null;
+  receipt_mime: string | null;
+  created_at: string;
+}
+
+export interface ExpenseOverview {
+  personal_fund_total: number;
+  business_fund_total: number; // = lifetime sales
+  personal_spent: number;
+  business_spent: number;
+  personal_balance: number;
+  business_balance: number;
+  total_expenses: number;
+  entries: number;
+}
+
+
 // ---------- helpers ----------
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const todayIST = () => new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
@@ -125,6 +150,39 @@ function round2(n: number) {
 }
 
 // ---------- Auth ----------
+export type Role = "owner" | "employee";
+
+export async function fetchMyRole(): Promise<Role> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const email = session?.user?.email?.toLowerCase().trim();
+  if (!email) return "owner";
+
+  // Read the roles table (permissive policy in roles.sql v3 lets any
+  // authenticated user do this).
+  const probe = await supabase.from("user_roles").select("email,role").limit(50);
+
+  if (probe.error) {
+    // Any read error — table missing, RLS recursion, network, etc. —
+    // means we cannot reliably determine the role. Default to OWNER
+    // so the app owner never accidentally locks themselves out.
+    // (Employee restriction only activates when we can prove the
+    // user is listed as an employee.)
+    return "owner";
+  }
+
+  // Table read succeeded. Find this user's row.
+  const myRow = (probe.data || []).find(
+    (r: any) => String(r.email).toLowerCase().trim() === email
+  );
+  if (!myRow) {
+    // Table exists and readable, but this user isn't listed — restrict.
+    return "employee";
+  }
+  return (myRow.role as Role) || "employee";
+}
+
 export async function login(email: string, password: string) {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw new Error(error.message);
@@ -432,6 +490,114 @@ export const api = {
     const { error } = await supabase.from("inventory").insert(payload);
     if (error) throw new Error(error.message);
     return { seeded: true };
+  },
+};
+
+// ---------- Expenses ----------
+export const expensesApi = {
+  overview: async (): Promise<ExpenseOverview> => {
+    const [salesRes, expRes, setRes] = await Promise.all([
+      supabase.from("bills").select("final_amount"),
+      supabase
+        .from("expenses")
+        .select("amount,personal_amount,business_amount"),
+      supabase
+        .from("app_settings")
+        .select("value_num")
+        .eq("key", "personal_fund_total")
+        .maybeSingle(),
+    ]);
+    if (salesRes.error) throw new Error(salesRes.error.message);
+    if (expRes.error) throw new Error(expRes.error.message);
+    // setRes may fail if table missing — throw a clearer error
+    if (setRes.error && !setRes.error.message.includes("row"))
+      throw new Error(setRes.error.message);
+
+    const business_fund_total = round2(
+      sum(salesRes.data || [], (b: any) => Number(b.final_amount))
+    );
+    const personal_spent = round2(
+      sum(expRes.data || [], (e: any) => Number(e.personal_amount))
+    );
+    const business_spent = round2(
+      sum(expRes.data || [], (e: any) => Number(e.business_amount))
+    );
+    const total_expenses = round2(
+      sum(expRes.data || [], (e: any) => Number(e.amount))
+    );
+    const personal_fund_total = Number(setRes.data?.value_num ?? 200000);
+    return {
+      personal_fund_total,
+      business_fund_total,
+      personal_spent,
+      business_spent,
+      personal_balance: round2(personal_fund_total - personal_spent),
+      business_balance: round2(business_fund_total - business_spent),
+      total_expenses,
+      entries: (expRes.data || []).length,
+    };
+  },
+
+  list: async (): Promise<Expense[]> => {
+    const { data, error } = await supabase
+      .from("expenses")
+      .select("*")
+      .order("expense_date", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data || []) as Expense[];
+  },
+
+  create: async (body: {
+    expense_date: string;
+    amount: number;
+    source: "personal" | "business" | "both";
+    personal_amount: number;
+    business_amount: number;
+    note?: string | null;
+    receipt_base64?: string | null;
+    receipt_mime?: string | null;
+  }): Promise<Expense> => {
+    const { data, error } = await supabase
+      .from("expenses")
+      .insert(body)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data as Expense;
+  },
+
+  remove: async (id: string) => {
+    const { error } = await supabase.from("expenses").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+    return { deleted: true };
+  },
+
+  setPersonalFund: async (value: number) => {
+    const { error } = await supabase
+      .from("app_settings")
+      .upsert(
+        { key: "personal_fund_total", value_num: value, updated_at: new Date().toISOString() },
+        { onConflict: "key" }
+      );
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  diagnose: async (): Promise<
+    { table: string; ok: boolean; message: string }[]
+  > => {
+    const tables = ["bills", "inventory", "expenses", "app_settings"];
+    const out: { table: string; ok: boolean; message: string }[] = [];
+    for (const t of tables) {
+      const { error } = await supabase.from(t).select("*").limit(1);
+      if (error) {
+        out.push({ table: t, ok: false, message: error.message });
+      } else {
+        out.push({ table: t, ok: true, message: "reachable" });
+      }
+    }
+    return out;
   },
 };
 
