@@ -31,6 +31,31 @@ const todayISO = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
+// Current month: 1st -> today
+const currentMonthRange = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = d.getMonth(); // 0-indexed
+  const from = `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  const to = todayISO();
+  return { from, to };
+};
+
+// Last month: 1st -> last day of previous month
+const lastMonthRange = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = d.getMonth(); // 0-indexed, current month
+  const prevMonthDate = new Date(y, m - 1, 1);
+  const py = prevMonthDate.getFullYear();
+  const pm = prevMonthDate.getMonth();
+  const from = `${py}-${String(pm + 1).padStart(2, "0")}-01`;
+  // Last day of previous month = day 0 of current month
+  const lastDay = new Date(y, m, 0);
+  const to = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, "0")}-${String(lastDay.getDate()).padStart(2, "0")}`;
+  return { from, to };
+};
+
 export default function SalesScreen() {
   const router = useRouter();
   const { role } = useRole();
@@ -43,6 +68,14 @@ export default function SalesScreen() {
   const [start, setStart] = useState<string>(todayISO());
   const [end, setEnd] = useState<string>(todayISO());
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Owner-only month revenue summary
+  const [monthSummary, setMonthSummary] = useState<{
+    currentMonthRevenue: number;
+    lastMonthRevenue: number;
+    lastMonthOnePct: number;
+  } | null>(null);
+  const [monthSummaryLoading, setMonthSummaryLoading] = useState(false);
 
   const load = useCallback(
     async (f: string, s: string, sd: string, ed: string) => {
@@ -64,12 +97,38 @@ export default function SalesScreen() {
     []
   );
 
+  const loadMonthSummary = useCallback(async () => {
+    setMonthSummaryLoading(true);
+    try {
+      const cur = currentMonthRange();
+      const last = lastMonthRange();
+      const [curBills, lastBills] = await Promise.all([
+        api.listBills({ filter: "custom", start_date: cur.from, end_date: cur.to }),
+        api.listBills({ filter: "custom", start_date: last.from, end_date: last.to }),
+      ]);
+      const currentMonthRevenue = curBills.reduce((s, b) => s + Number(b.final_amount), 0);
+      const lastMonthRevenue = lastBills.reduce((s, b) => s + Number(b.final_amount), 0);
+      setMonthSummary({
+        currentMonthRevenue,
+        lastMonthRevenue,
+        lastMonthOnePct: lastMonthRevenue * 0.01,
+      });
+    } catch {
+      setMonthSummary(null);
+    } finally {
+      setMonthSummaryLoading(false);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       // Employees are locked to today.
       const f = isEmployee ? "today" : filter;
       load(f, isEmployee ? "" : search, start, end);
-    }, [load, filter, search, start, end, isEmployee])
+      if (!isEmployee) {
+        loadMonthSummary();
+      }
+    }, [load, filter, search, start, end, isEmployee, loadMonthSummary])
   );
 
   const totals = bills.reduce(
@@ -97,6 +156,51 @@ export default function SalesScreen() {
 
       {!isEmployee && (
         <>
+          {/* Month revenue summary card — owner only */}
+          <View style={styles.monthSummaryCard} testID="sales-month-summary">
+            <View style={styles.monthSummaryHeader}>
+              <Ionicons name="bar-chart" size={15} color={theme.color.brandPrimary} />
+              <Text style={styles.monthSummaryTitle}>Monthly Revenue</Text>
+              {monthSummaryLoading && (
+                <ActivityIndicator size="small" color={theme.color.brandPrimary} style={{ marginLeft: 6 }} />
+              )}
+            </View>
+
+            {monthSummary ? (
+              <>
+                <View style={styles.monthSummaryRow}>
+                  <View style={styles.monthSummaryCol}>
+                    <Text style={styles.monthSummaryLabel}>This Month (1st → Today)</Text>
+                    <Text
+                      testID="sales-current-month-revenue"
+                      style={styles.monthSummaryValue}
+                    >
+                      {formatINRPlain(monthSummary.currentMonthRevenue)}
+                    </Text>
+                  </View>
+                  <View style={styles.monthSummaryDivider} />
+                  <View style={styles.monthSummaryCol}>
+                    <Text style={styles.monthSummaryLabel}>Last Month (Full)</Text>
+                    <Text
+                      testID="sales-last-month-revenue"
+                      style={styles.monthSummaryValue}
+                    >
+                      {formatINRPlain(monthSummary.lastMonthRevenue)}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.onePctBox}>
+                  <Text style={styles.onePctLabel}>1% of Last Month's Revenue</Text>
+                  <Text testID="sales-last-month-one-pct" style={styles.onePctValue}>
+                    {formatINRPlain(monthSummary.lastMonthOnePct)}
+                  </Text>
+                </View>
+              </>
+            ) : monthSummaryLoading ? null : (
+              <Text style={styles.monthSummaryError}>Couldn't load monthly revenue</Text>
+            )}
+          </View>
+
           <View style={{ paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md }}>
             <View style={styles.searchBar}>
               <Ionicons name="search" size={16} color={theme.color.onSurfaceTertiary} />
@@ -420,6 +524,75 @@ const styles = StyleSheet.create({
   statusText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   amount: { color: theme.color.brandPrimary, fontSize: 16, fontWeight: "800" },
   discount: { color: theme.color.warning, fontSize: 11, marginTop: 2 },
+
+  /* Month revenue summary card */
+  monthSummaryCard: {
+    marginHorizontal: theme.spacing.lg,
+    marginTop: theme.spacing.md,
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.lg,
+  },
+  monthSummaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: theme.spacing.md,
+  },
+  monthSummaryTitle: {
+    color: theme.color.onSurface,
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  monthSummaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  monthSummaryCol: { flex: 1 },
+  monthSummaryDivider: {
+    width: 1,
+    height: 36,
+    backgroundColor: theme.color.divider,
+    marginHorizontal: theme.spacing.md,
+  },
+  monthSummaryLabel: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    marginBottom: 4,
+  },
+  monthSummaryValue: {
+    color: theme.color.brandPrimary,
+    fontSize: 19,
+    fontWeight: "800",
+  },
+  onePctBox: {
+    marginTop: theme.spacing.md,
+    paddingTop: theme.spacing.md,
+    borderTopColor: theme.color.divider,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  onePctLabel: {
+    color: theme.color.onSurfaceSecondary,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  onePctValue: {
+    color: theme.color.warning,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  monthSummaryError: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 12,
+  },
 
   rangeChip: {
     flexDirection: "row",
