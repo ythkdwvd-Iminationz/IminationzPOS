@@ -617,3 +617,48 @@ export async function setToken(_t: string) {
 function sum<T>(arr: T[], f: (t: T) => number) {
   return arr.reduce((s, x) => s + (f(x) || 0), 0);
 }
+
+// =====================================================================
+// Add these to src/api/client.ts, replacing (or alongside) the existing
+// `login()` function. They implement email OTP login instead of
+// email+password.
+// =====================================================================
+
+// ---------- OTP Auth ----------
+
+/**
+ * Step 1: send a 6-digit OTP code to the given email.
+ * `shouldCreateUser: false` means only emails that already exist as
+ * Supabase Auth users (i.e. owner/employee accounts you created) can
+ * request an OTP — random emails can't self-signup this way.
+ */
+export async function requestLoginOtp(email: string) {
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim().toLowerCase(),
+    options: {
+      shouldCreateUser: false,
+    },
+  });
+  if (error) throw new Error(error.message);
+  return { sent: true };
+}
+
+/**
+ * Step 2: verify the 6-digit code the user received by email.
+ * On success, Supabase sets up the session exactly like a normal login —
+ * everything downstream (fetchMyRole, RLS, etc.) works unchanged.
+ */
+export async function verifyLoginOtp(email: string, token: string) {
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: email.trim().toLowerCase(),
+    token: token.trim(),
+    type: "email",
+  });
+  if (error) throw new Error(error.message);
+  return { session: data.session, store_name: STORE_NAME };
+}
+
+// NOTE: you can now remove or keep the old `login(email, password)`
+// function. If you keep it as a fallback, that's fine — but for a
+// pure-OTP flow, the Login screen should call requestLoginOtp() then
+// verifyLoginOtp() instead of api.login().
