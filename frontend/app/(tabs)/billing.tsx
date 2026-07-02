@@ -440,7 +440,18 @@ export default function BillingScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.lineName}>{l.inv.item_name}</Text>
                       <Text style={styles.lineSub}>
-                        {fmt(l.inv.price)} · stock {l.inv.current_qty}
+                        {fmt(l.inv.price)} · stock{" "}
+                        <Text
+                          style={{
+                            color:
+                              l.inv.current_qty <= 5
+                                ? theme.color.error
+                                : theme.color.success,
+                            fontWeight: "700",
+                          }}
+                        >
+                          {l.inv.current_qty}
+                        </Text>
                       </Text>
                     </View>
                     <View style={styles.qtyBox}>
@@ -674,7 +685,12 @@ export default function BillingScreen() {
                         <View
                           style={[
                             styles.itemCardStock,
-                            item.current_qty <= 5 && { backgroundColor: theme.color.error },
+                            {
+                              backgroundColor:
+                                item.current_qty <= 5
+                                  ? theme.color.error
+                                  : theme.color.success,
+                            },
                           ]}
                         >
                           <Text style={styles.itemCardStockText}>Qty {item.current_qty}</Text>
