@@ -43,6 +43,10 @@ export interface Bill {
   cash_amount: number;
   upi_amount: number;
   payment_status: string;
+  // NEW — who created this bill, captured server-side in create_bill().
+  // Older bills predating this feature will have these as null.
+  created_by_email?: string | null;
+  created_by_role?: "owner" | "employee" | null;
 }
 
 export interface DashboardData {
