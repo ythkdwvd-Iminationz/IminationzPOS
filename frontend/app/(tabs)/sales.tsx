@@ -330,11 +330,32 @@ export default function SalesScreen() {
                     {item.customer_name ? ` · ${item.customer_name}` : ""}
                   </Text>
                 ) : (
-                  <Text style={styles.meta}>
-                    Mobile: {item.customer_mobile || "—"} · Cash{" "}
-                    {formatINRPlain(item.cash_amount)} · UPI{" "}
-                    {formatINRPlain(item.upi_amount)}
-                  </Text>
+                  <>
+                    <Text style={styles.meta}>
+                      Mobile: {item.customer_mobile || "—"} · Cash{" "}
+                      {formatINRPlain(item.cash_amount)} · UPI{" "}
+                      {formatINRPlain(item.upi_amount)}
+                    </Text>
+                    {item.created_by_role && (
+                      <View style={styles.creatorRow} testID={`bill-creator-${item.bill_number}`}>
+                        <View
+                          style={[
+                            styles.creatorDot,
+                            {
+                              backgroundColor:
+                                item.created_by_role === "owner"
+                                  ? theme.color.brandPrimary
+                                  : theme.color.info,
+                            },
+                          ]}
+                        />
+                        <Text style={styles.creatorText}>
+                          {item.created_by_role === "owner" ? "Owner" : "Employee"}
+                          {item.created_by_email ? ` · ${item.created_by_email}` : ""}
+                        </Text>
+                      </View>
+                    )}
+                  </>
                 )}
               </View>
               {!isEmployee && (
@@ -520,6 +541,22 @@ const styles = StyleSheet.create({
   },
   billNo: { color: theme.color.onSurface, fontWeight: "700", fontSize: 14 },
   meta: { color: theme.color.onSurfaceTertiary, fontSize: 11, marginTop: 2 },
+  creatorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 4,
+  },
+  creatorDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  creatorText: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 10,
+    fontWeight: "600",
+  },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: theme.radius.pill },
   statusText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   amount: { color: theme.color.brandPrimary, fontSize: 16, fontWeight: "800" },
