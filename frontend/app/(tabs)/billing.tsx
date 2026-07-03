@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, InventoryItem, CustomerInfo, logout } from "@/src/api/client";
+import { api, InventoryItem, CustomerInfo } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useDraftBilling } from "@/src/draft/useDraftBilling";
 import { DraftCartLine } from "@/src/draft/draftBillingStorage";
@@ -61,19 +61,6 @@ export default function BillingScreen() {
   // Android app is killed mid-request and the user retries, or a
   // duplicate tap slips through before `submitting` state re-renders.
   const submitLockRef = useRef(false);
-  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  const onConfirmLogout = async () => {
-    setLoggingOut(true);
-    try {
-      await logout();
-      router.replace("/");
-    } finally {
-      setLoggingOut(false);
-      setLogoutConfirmOpen(false);
-    }
-  };
 
   const load = useCallback(async () => {
     try {
@@ -396,18 +383,9 @@ export default function BillingScreen() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>New Bill</Text>
-          <View style={styles.headerBtns}>
-            <Pressable testID="reset-bill" onPress={reset} style={styles.resetBtn}>
-              <Ionicons name="refresh" size={18} color={theme.color.onSurface} />
-            </Pressable>
-            <Pressable
-              testID="logout-button"
-              onPress={() => setLogoutConfirmOpen(true)}
-              style={styles.resetBtn}
-            >
-              <Ionicons name="log-out-outline" size={18} color={theme.color.error} />
-            </Pressable>
-          </View>
+          <Pressable testID="reset-bill" onPress={reset} style={styles.resetBtn}>
+            <Ionicons name="refresh" size={18} color={theme.color.onSurface} />
+          </Pressable>
         </View>
 
         {showRestoredBanner && (
@@ -873,49 +851,6 @@ export default function BillingScreen() {
             </View>
           </View>
         </Modal>
-
-        {/* Logout confirmation */}
-        <Modal
-          visible={logoutConfirmOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setLogoutConfirmOpen(false)}
-        >
-          <View style={styles.logoutOverlay}>
-            <View style={styles.logoutBox}>
-              <Ionicons name="log-out-outline" size={28} color={theme.color.error} />
-              <Text style={styles.logoutTitle}>Log out?</Text>
-              <Text style={styles.logoutBody}>
-                You'll need to sign in again to create bills.
-                {cart.length > 0
-                  ? " Your current draft bill will be saved and restored next time you log in."
-                  : ""}
-              </Text>
-              <View style={styles.logoutActions}>
-                <Pressable
-                  testID="logout-cancel"
-                  onPress={() => setLogoutConfirmOpen(false)}
-                  disabled={loggingOut}
-                  style={[styles.cancelBtn, loggingOut && { opacity: 0.5 }]}
-                >
-                  <Text style={styles.cancelBtnText}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  testID="logout-confirm"
-                  onPress={onConfirmLogout}
-                  disabled={loggingOut}
-                  style={[styles.logoutConfirmBtn, loggingOut && { opacity: 0.5 }]}
-                >
-                  {loggingOut ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.logoutConfirmBtnText}>Log Out</Text>
-                  )}
-                </Pressable>
-              </View>
-            </View>
-          </View>
-        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -934,7 +869,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   title: { color: theme.color.onSurface, fontSize: 22, fontWeight: "700" },
-  headerBtns: { flexDirection: "row", gap: theme.spacing.sm },
   resetBtn: {
     width: 40,
     height: 40,
@@ -1350,55 +1284,6 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: {
     color: theme.color.onSurfaceSecondary,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  logoutOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: theme.spacing.lg,
-  },
-  logoutBox: {
-    width: "100%",
-    maxWidth: 360,
-    backgroundColor: theme.color.surface,
-    borderRadius: theme.radius.lg,
-    borderColor: theme.color.border,
-    borderWidth: 1,
-    padding: theme.spacing.xl,
-    alignItems: "center",
-  },
-  logoutTitle: {
-    color: theme.color.onSurface,
-    fontSize: 18,
-    fontWeight: "700",
-    marginTop: theme.spacing.sm,
-  },
-  logoutBody: {
-    color: theme.color.onSurfaceTertiary,
-    fontSize: 13,
-    textAlign: "center",
-    marginTop: theme.spacing.sm,
-    lineHeight: 18,
-  },
-  logoutActions: {
-    flexDirection: "row",
-    gap: theme.spacing.md,
-    marginTop: theme.spacing.lg,
-    width: "100%",
-  },
-  logoutConfirmBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.color.error,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoutConfirmBtnText: {
-    color: "#fff",
     fontSize: 15,
     fontWeight: "700",
   },
