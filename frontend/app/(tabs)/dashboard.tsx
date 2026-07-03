@@ -242,7 +242,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#1a1408",
+    // FIX: was a hardcoded "#1a1408" (near-black), left over from the old
+    // dark theme where it sat correctly *underneath* light text on a dark
+    // card. Now that heroCard's background is the light `brandTertiary`,
+    // this needs to be a subtler tint of the same card color instead of
+    // black. Using the app's brandSecondary at low opacity keeps it in
+    // the gold/tan family and reads as "a slightly deeper chip on tan,"
+    // not a jarring black box.
+    backgroundColor: "rgba(170, 135, 67, 0.14)", // brandSecondary (#AA8743) at 14% opacity
     borderRadius: theme.radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 6,
