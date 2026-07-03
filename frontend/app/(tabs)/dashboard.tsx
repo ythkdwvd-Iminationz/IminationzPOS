@@ -13,9 +13,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { api, clearToken, DashboardData } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
+import { useRole } from "@/src/hooks/use-role";
 
 export default function DashboardScreen() {
   const router = useRouter();
+  const { role } = useRole();
+  const isEmployee = role === "employee";
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -64,7 +67,9 @@ export default function DashboardScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.brand}>{data?.store_name || "Iminationz"}</Text>
-          <Text style={styles.subtitle}>Todays overview · {data?.date || ""}</Text>
+          <Text style={styles.subtitle}>
+            {isEmployee ? "Today's overview" : "Todays overview"} · {data?.date || ""}
+          </Text>
         </View>
         <Pressable testID="logout-button" onPress={onLogout} style={styles.logoutBtn}>
           <Ionicons name="log-out-outline" size={22} color={theme.color.onSurface} />
@@ -91,74 +96,118 @@ export default function DashboardScreen() {
         >
           {error && <Text style={styles.error}>{error}</Text>}
 
-          <View style={styles.heroCard} testID="dashboard-sales-card">
-            <Text style={styles.heroLabel}>Todays Sales</Text>
-            <Text style={styles.heroValue}>{formatINRPlain(data?.total_sales || 0)}</Text>
-            <View style={styles.heroRow}>
-              <View style={styles.heroPill}>
-                <Ionicons name="receipt-outline" size={14} color={theme.color.brandPrimary} />
-                <Text style={styles.heroPillText}>{data?.total_bills || 0} bills</Text>
+          {isEmployee ? (
+            <>
+              {/* Employee view: no amounts, no payment info — just
+                  operational counts and a quick way to start billing. */}
+              <View style={styles.heroCard} testID="dashboard-bills-card">
+                <Text style={styles.heroLabel}>Today's Bills</Text>
+                <Text style={styles.heroValue}>{data?.total_bills || 0}</Text>
+                <View style={styles.heroRow}>
+                  <View style={styles.heroPill}>
+                    <Ionicons name="bag-handle-outline" size={14} color={theme.color.brandPrimary} />
+                    <Text style={styles.heroPillText}>{data?.items_sold || 0} items sold</Text>
+                  </View>
+                </View>
               </View>
-              <View style={styles.heroPill}>
-                <Ionicons name="pricetag-outline" size={14} color={theme.color.brandPrimary} />
-                <Text style={styles.heroPillText}>Avg {formatINRPlain(data?.average_bill_value || 0)}</Text>
+
+              <View style={styles.grid}>
+                <KpiCard
+                  testID="kpi-inventory"
+                  icon="cube-outline"
+                  label="Stock Qty"
+                  value={String(data?.total_inventory_qty || 0)}
+                />
+                <KpiCard
+                  testID="kpi-low-stock"
+                  icon="warning-outline"
+                  label="Low Stock"
+                  value={String(data?.low_stock_count || 0)}
+                  warn={(data?.low_stock_count || 0) > 0}
+                />
               </View>
-            </View>
-          </View>
 
-          <View style={styles.grid}>
-            <KpiCard
-              testID="kpi-cash"
-              icon="cash-outline"
-              label="Cash"
-              value={formatINRPlain(data?.total_cash || 0)}
-            />
-            <KpiCard
-              testID="kpi-upi"
-              icon="phone-portrait-outline"
-              label="UPI"
-              value={formatINRPlain(data?.total_upi || 0)}
-            />
-            <KpiCard
-              testID="kpi-items-sold"
-              icon="bag-handle-outline"
-              label="Items Sold"
-              value={String(data?.items_sold || 0)}
-            />
-            <KpiCard
-              testID="kpi-discount"
-              icon="ribbon-outline"
-              label="Discount"
-              value={formatINRPlain(data?.discount_given || 0)}
-            />
-            <KpiCard
-              testID="kpi-inventory"
-              icon="cube-outline"
-              label="Stock Qty"
-              value={String(data?.total_inventory_qty || 0)}
-            />
-            <KpiCard
-              testID="kpi-low-stock"
-              icon="warning-outline"
-              label="Low Stock"
-              value={String(data?.low_stock_count || 0)}
-              warn={(data?.low_stock_count || 0) > 0}
-            />
-          </View>
+              <Pressable
+                testID="quick-bill-cta"
+                onPress={() => router.push("/(tabs)/billing")}
+                style={styles.cta}
+              >
+                <Ionicons name="add-circle" size={22} color={theme.color.onBrandPrimary} />
+                <Text style={styles.ctaText}>New Bill</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <View style={styles.heroCard} testID="dashboard-sales-card">
+                <Text style={styles.heroLabel}>Todays Sales</Text>
+                <Text style={styles.heroValue}>{formatINRPlain(data?.total_sales || 0)}</Text>
+                <View style={styles.heroRow}>
+                  <View style={styles.heroPill}>
+                    <Ionicons name="receipt-outline" size={14} color={theme.color.brandPrimary} />
+                    <Text style={styles.heroPillText}>{data?.total_bills || 0} bills</Text>
+                  </View>
+                  <View style={styles.heroPill}>
+                    <Ionicons name="pricetag-outline" size={14} color={theme.color.brandPrimary} />
+                    <Text style={styles.heroPillText}>Avg {formatINRPlain(data?.average_bill_value || 0)}</Text>
+                  </View>
+                </View>
+              </View>
 
-          <Pressable
-            testID="quick-bill-cta"
-            onPress={() => router.push("/(tabs)/billing")}
-            style={styles.cta}
-          >
-            <Ionicons name="add-circle" size={22} color={theme.color.onBrandPrimary} />
-            <Text style={styles.ctaText}>New Bill</Text>
-          </Pressable>
+              <View style={styles.grid}>
+                <KpiCard
+                  testID="kpi-cash"
+                  icon="cash-outline"
+                  label="Cash"
+                  value={formatINRPlain(data?.total_cash || 0)}
+                />
+                <KpiCard
+                  testID="kpi-upi"
+                  icon="phone-portrait-outline"
+                  label="UPI"
+                  value={formatINRPlain(data?.total_upi || 0)}
+                />
+                <KpiCard
+                  testID="kpi-items-sold"
+                  icon="bag-handle-outline"
+                  label="Items Sold"
+                  value={String(data?.items_sold || 0)}
+                />
+                <KpiCard
+                  testID="kpi-discount"
+                  icon="ribbon-outline"
+                  label="Discount"
+                  value={formatINRPlain(data?.discount_given || 0)}
+                />
+                <KpiCard
+                  testID="kpi-inventory"
+                  icon="cube-outline"
+                  label="Stock Qty"
+                  value={String(data?.total_inventory_qty || 0)}
+                />
+                <KpiCard
+                  testID="kpi-low-stock"
+                  icon="warning-outline"
+                  label="Low Stock"
+                  value={String(data?.low_stock_count || 0)}
+                  warn={(data?.low_stock_count || 0) > 0}
+                />
+              </View>
 
-          {(data?.total_inventory_qty || 0) === 0 && (
-            <Pressable testID="seed-button" onPress={onSeed} style={styles.seedBtn}>
-              <Text style={styles.seedText}>Seed Sample Inventory</Text>
-            </Pressable>
+              <Pressable
+                testID="quick-bill-cta"
+                onPress={() => router.push("/(tabs)/billing")}
+                style={styles.cta}
+              >
+                <Ionicons name="add-circle" size={22} color={theme.color.onBrandPrimary} />
+                <Text style={styles.ctaText}>New Bill</Text>
+              </Pressable>
+
+              {(data?.total_inventory_qty || 0) === 0 && (
+                <Pressable testID="seed-button" onPress={onSeed} style={styles.seedBtn}>
+                  <Text style={styles.seedText}>Seed Sample Inventory</Text>
+                </Pressable>
+              )}
+            </>
           )}
         </ScrollView>
       )}
