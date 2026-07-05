@@ -666,3 +666,40 @@ export async function verifyLoginOtp(email: string, token: string) {
 // function. If you keep it as a fallback, that's fine — but for a
 // pure-OTP flow, the Login screen should call requestLoginOtp() then
 // verifyLoginOtp() instead of api.login().
+
+// =====================================================================
+// Add to src/api/client.ts, alongside the other exchange-related items.
+// =====================================================================
+
+export interface ExchangeHistoryEntry {
+  id: string;
+  bill_id: string;
+  bill_number: string;
+  old_item_id: string;
+  old_item_name: string;
+  old_qty: number;
+  old_line_total: number;
+  new_item_id: string;
+  new_item_name: string;
+  new_qty: number;
+  new_line_total: number;
+  price_diff: number;
+  cash_settled: number;
+  upi_settled: number;
+  exchanged_at: string; // ISO timestamp — the returned/exchanged date
+  exchanged_by_email: string | null;
+  exchanged_by_role: "owner" | "employee" | null;
+}
+
+// Add this function inside the `api = { ... }` object in client.ts,
+// near exchangeBillItem:
+//
+// getExchangeHistory: async (billId: string): Promise<ExchangeHistoryEntry[]> => {
+//   const { data, error } = await supabase
+//     .from("exchange_history")
+//     .select("*")
+//     .eq("bill_id", billId)
+//     .order("exchanged_at", { ascending: false });
+//   if (error) throw new Error(error.message);
+//   return (data || []) as ExchangeHistoryEntry[];
+// },
