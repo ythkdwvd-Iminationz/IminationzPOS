@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { api, Bill } from "@/src/api/client";
+import { api, Bill, ExchangeHistoryEntry } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 
 // The receipt is meant to look like a physical paper receipt — always
@@ -33,12 +33,23 @@ export default function InvoiceScreen() {
   const [bill, setBill] = useState<Bill | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exchangeHistory, setExchangeHistory] = useState<ExchangeHistoryEntry[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
         const b = await api.getBill(id);
         setBill(b);
+        // Only bother fetching history for bills that were actually
+        // exchanged — most bills never touch this table.
+        if ((b.exchange_count || 0) > 0) {
+          try {
+            const hist = await api.getExchangeHistory(id);
+            setExchangeHistory(hist);
+          } catch {
+            // Non-fatal — the invoice still renders fine without history.
+          }
+        }
       } catch (e: any) {
         setError(e.message);
       } finally {
@@ -143,6 +154,40 @@ export default function InvoiceScreen() {
               </View>
             ))}
 
+            {exchangeHistory.length > 0 && (
+              <>
+                <View style={styles.dash} />
+                <Text style={styles.exchangeHistTitle}>Exchange Record</Text>
+                {exchangeHistory.map((ex) => (
+                  <View key={ex.id} style={styles.exchangeHistRow} testID={`invoice-exchange-${ex.id}`}>
+                    <Text style={styles.exchangeHistDate}>
+                      {new Date(ex.exchanged_at).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                      {" · "}
+                      {new Date(ex.exchanged_at).toLocaleTimeString("en-IN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </Text>
+                    <Text style={styles.exchangeHistLine}>
+                      Returned: {ex.old_item_name} (x{ex.old_qty}) — {formatINRPlain(ex.old_line_total)}
+                    </Text>
+                    <Text style={styles.exchangeHistLine}>
+                      Given: {ex.new_item_name} (x{ex.new_qty}) — {formatINRPlain(ex.new_line_total)}
+                    </Text>
+                    <Text style={styles.exchangeHistDiff}>
+                      {ex.price_diff >= 0
+                        ? `Customer paid ${formatINRPlain(ex.price_diff)}`
+                        : `Refunded ${formatINRPlain(-ex.price_diff)}`}
+                    </Text>
+                  </View>
+                ))}
+              </>
+            )}
+
             <View style={styles.dash} />
 
             <Row k="Gross" v={formatINRPlain(bill.gross_amount)} />
@@ -236,6 +281,37 @@ const styles = StyleSheet.create({
   store: { fontSize: 24, fontWeight: "900", color: RECEIPT_INK, textAlign: "center", letterSpacing: 3 },
   tag: { fontSize: 11, color: "#666", textAlign: "center", marginTop: 2, letterSpacing: 2 },
   dash: { borderTopWidth: 1, borderTopColor: "#bbb", borderStyle: "dashed", marginVertical: 8 },
+  exchangeHistTitle: {
+    color: "#333",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  exchangeHistRow: {
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  exchangeHistDate: {
+    color: "#888",
+    fontSize: 10,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
+  exchangeHistLine: {
+    color: RECEIPT_INK,
+    fontSize: 11,
+    marginTop: 1,
+  },
+  exchangeHistDiff: {
+    color: "#9B111E",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 3,
+  },
   thead: { flexDirection: "row", marginTop: 4 },
   th: { color: "#333", fontWeight: "700", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 },
   tr: { flexDirection: "row", paddingVertical: 4 },
