@@ -116,11 +116,20 @@
 
     /* Hero */
     .hero {
-      min-height: 100vh; min-height: 100dvh;
+      min-height: 100svh;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       padding: 84px 20px 32px;
       position: relative; z-index: 1;
       transform-style: preserve-3d;
+    }
+    /* On small/short screens, don't force full-viewport height —
+       let the hero size to its content so there's no dead space
+       when zoomed out or the viewport is small. */
+    @media (max-width: 480px), (max-height: 700px) {
+      .hero {
+        min-height: auto;
+        padding: 76px 18px 24px;
+      }
     }
 
     .logo-stage {
@@ -377,6 +386,15 @@
       .logo-stage { width: 120px; height: 120px; }
       .tagline { margin-top: 20px; }
       .scroll-hint { margin-top: 20px; }
+    }
+
+    /* Compact hero rhythm on small/short screens — content-sized,
+       no leftover empty space when zoomed out. */
+    @media (max-width: 480px), (max-height: 700px) {
+      .logo-stage { width: clamp(130px, 38vw, 190px); height: clamp(130px, 38vw, 190px); }
+      .tagline { margin-top: 22px; }
+      .scroll-hint { margin-top: 26px; }
+      .links-section { padding: 24px 16px 48px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
