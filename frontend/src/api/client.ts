@@ -674,12 +674,6 @@ export const expensesApi = {
     return data as Expense;
   },
 
-  remove: async (id: string) => {
-    const { error } = await supabase.from("expenses").delete().eq("id", id);
-    if (error) throw new Error(error.message);
-    return { deleted: true };
-  },
-
   setPersonalFund: async (value: number) => {
     const { error } = await supabase
       .from("app_settings")
