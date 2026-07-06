@@ -14,11 +14,13 @@ export interface InventoryItem {
   opening_qty: number;
   current_qty: number;
   sold_qty: number;
+  exchange_count: number; // NEW — how many times this item has been exchanged
   created_date: string;
   last_updated: string;
 }
 
 export interface BillItem {
+  id: string; // NEW — bill_items.id, needed to target a specific line for exchange
   inv_id: string;
   item_id: string;
   item_name: string;
@@ -43,6 +45,36 @@ export interface Bill {
   cash_amount: number;
   upi_amount: number;
   payment_status: string;
+  // who created this bill, captured server-side in create_bill().
+  // Older bills predating this feature will have these as null.
+  created_by_email?: string | null;
+  created_by_role?: "owner" | "employee" | null;
+  // NEW — exchange tracking (most-recent-exchange summary on the bill
+  // itself; full history lives in ExchangeHistoryEntry rows)
+  exchanged_at?: string | null;
+  exchange_count?: number;
+  last_exchanged_by_email?: string | null;
+  last_exchanged_by_role?: "owner" | "employee" | null;
+}
+
+export interface ExchangeHistoryEntry {
+  id: string;
+  bill_id: string;
+  bill_number: string;
+  old_item_id: string;
+  old_item_name: string;
+  old_qty: number;
+  old_line_total: number;
+  new_item_id: string;
+  new_item_name: string;
+  new_qty: number;
+  new_line_total: number;
+  price_diff: number;
+  cash_settled: number;
+  upi_settled: number;
+  exchanged_at: string; // ISO timestamp — the returned/exchanged date
+  exchanged_by_email: string | null;
+  exchanged_by_role: "owner" | "employee" | null;
 }
 
 export interface DashboardData {
@@ -198,6 +230,40 @@ export async function getSession() {
   return data.session;
 }
 
+// ---------- OTP Auth ----------
+
+/**
+ * Step 1: send a 6-digit OTP code to the given email.
+ * `shouldCreateUser: false` means only emails that already exist as
+ * Supabase Auth users (i.e. owner/employee accounts you created) can
+ * request an OTP — random emails can't self-signup this way.
+ */
+export async function requestLoginOtp(email: string) {
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim().toLowerCase(),
+    options: {
+      shouldCreateUser: false,
+    },
+  });
+  if (error) throw new Error(error.message);
+  return { sent: true };
+}
+
+/**
+ * Step 2: verify the 6-digit code the user received by email.
+ * On success, Supabase sets up the session exactly like a normal login —
+ * everything downstream (fetchMyRole, RLS, etc.) works unchanged.
+ */
+export async function verifyLoginOtp(email: string, token: string) {
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: email.trim().toLowerCase(),
+    token: token.trim(),
+    type: "email",
+  });
+  if (error) throw new Error(error.message);
+  return { session: data.session, store_name: STORE_NAME };
+}
+
 // ---------- API surface (kept identical to old `api.*` for minimal screen churn) ----------
 export const api = {
   login: async (email: string, password: string) => login(email, password),
@@ -297,6 +363,47 @@ export const api = {
     const { data, error } = await supabase.from("v_bills_full").select("*").eq("id", id).single();
     if (error) throw new Error(error.message);
     return data as Bill;
+  },
+
+  // ---- Exchange feature (owner only — enforced via RLS on bills UPDATE) ----
+  exchangeBillItem: async (body: {
+    bill_id: string;
+    old_bill_item_id: string;
+    new_inv_id: string;
+    new_qty: number;
+    cash_amount: number;
+    upi_amount: number;
+  }): Promise<{
+    bill_id: string;
+    old_item_name: string;
+    new_item_name: string;
+    price_diff: number;
+    settlement_collected: number;
+    new_gross_amount: number;
+    new_discount: number;
+    new_final_amount: number;
+    exchanged_at: string;
+  }> => {
+    const { data, error } = await supabase.rpc("exchange_bill_item", {
+      p_bill_id: body.bill_id,
+      p_old_bill_item_id: body.old_bill_item_id,
+      p_new_inv_id: body.new_inv_id,
+      p_new_qty: body.new_qty,
+      p_cash_amount: body.cash_amount,
+      p_upi_amount: body.upi_amount,
+    });
+    if (error) throw new Error(error.message);
+    return data as any;
+  },
+
+  getExchangeHistory: async (billId: string): Promise<ExchangeHistoryEntry[]> => {
+    const { data, error } = await supabase
+      .from("exchange_history")
+      .select("*")
+      .eq("bill_id", billId)
+      .order("exchanged_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data || []) as ExchangeHistoryEntry[];
   },
 
   // Dashboard
@@ -617,48 +724,3 @@ export async function setToken(_t: string) {
 function sum<T>(arr: T[], f: (t: T) => number) {
   return arr.reduce((s, x) => s + (f(x) || 0), 0);
 }
-
-// =====================================================================
-// Add these to src/api/client.ts, replacing (or alongside) the existing
-// `login()` function. They implement email OTP login instead of
-// email+password.
-// =====================================================================
-
-// ---------- OTP Auth ----------
-
-/**
- * Step 1: send a 6-digit OTP code to the given email.
- * `shouldCreateUser: false` means only emails that already exist as
- * Supabase Auth users (i.e. owner/employee accounts you created) can
- * request an OTP — random emails can't self-signup this way.
- */
-export async function requestLoginOtp(email: string) {
-  const { error } = await supabase.auth.signInWithOtp({
-    email: email.trim().toLowerCase(),
-    options: {
-      shouldCreateUser: false,
-    },
-  });
-  if (error) throw new Error(error.message);
-  return { sent: true };
-}
-
-/**
- * Step 2: verify the 6-digit code the user received by email.
- * On success, Supabase sets up the session exactly like a normal login —
- * everything downstream (fetchMyRole, RLS, etc.) works unchanged.
- */
-export async function verifyLoginOtp(email: string, token: string) {
-  const { data, error } = await supabase.auth.verifyOtp({
-    email: email.trim().toLowerCase(),
-    token: token.trim(),
-    type: "email",
-  });
-  if (error) throw new Error(error.message);
-  return { session: data.session, store_name: STORE_NAME };
-}
-
-// NOTE: you can now remove or keep the old `login(email, password)`
-// function. If you keep it as a fallback, that's fine — but for a
-// pure-OTP flow, the Login screen should call requestLoginOtp() then
-// verifyLoginOtp() instead of api.login().

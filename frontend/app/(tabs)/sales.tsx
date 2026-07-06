@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, Bill } from "@/src/api/client";
+import { api, Bill, InventoryItem } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useRole } from "@/src/hooks/use-role";
 
@@ -69,6 +69,10 @@ export default function SalesScreen() {
   const [end, setEnd] = useState<string>(todayISO());
   const [pickerOpen, setPickerOpen] = useState(false);
 
+  // ---- Exchange feature (owner only) ----
+  const [exchangeBill, setExchangeBill] = useState<Bill | null>(null);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+
   // Owner-only month revenue summary
   const [monthSummary, setMonthSummary] = useState<{
     currentMonthRevenue: number;
@@ -96,6 +100,20 @@ export default function SalesScreen() {
     },
     []
   );
+
+  const openExchange = useCallback(async (bill: Bill) => {
+    setExchangeBill(bill);
+    // Lazily load inventory only when the exchange modal is actually
+    // opened, so owners who never use this feature don't pay the cost
+    // of an extra fetch on every Sales screen visit.
+    try {
+      const inv = await api.listInventory();
+      setInventory(inv);
+    } catch {
+      // If this fails, the exchange modal will just show an empty
+      // "new item" list — the picker itself surfaces that state.
+    }
+  }, []);
 
   const loadMonthSummary = useCallback(async () => {
     setMonthSummaryLoading(true);
@@ -330,15 +348,47 @@ export default function SalesScreen() {
                     {item.customer_name ? ` · ${item.customer_name}` : ""}
                   </Text>
                 ) : (
-                  <Text style={styles.meta}>
-                    Mobile: {item.customer_mobile || "—"} · Cash{" "}
-                    {formatINRPlain(item.cash_amount)} · UPI{" "}
-                    {formatINRPlain(item.upi_amount)}
-                  </Text>
+                  <>
+                    <Text style={styles.meta}>
+                      Mobile: {item.customer_mobile || "—"} · Cash{" "}
+                      {formatINRPlain(item.cash_amount)} · UPI{" "}
+                      {formatINRPlain(item.upi_amount)}
+                    </Text>
+                    {item.created_by_role && (
+                      <View style={styles.creatorRow} testID={`bill-creator-${item.bill_number}`}>
+                        <View
+                          style={[
+                            styles.creatorDot,
+                            {
+                              backgroundColor:
+                                item.created_by_role === "owner"
+                                  ? theme.color.brandPrimary
+                                  : theme.color.info,
+                            },
+                          ]}
+                        />
+                        <Text style={styles.creatorText}>
+                          {item.created_by_role === "owner" ? "Owner" : "Employee"}
+                          {item.created_by_email ? ` · ${item.created_by_email}` : ""}
+                        </Text>
+                      </View>
+                    )}
+                    {(item.exchange_count || 0) > 0 && (
+                      <View style={styles.exchangedBadge} testID={`bill-exchanged-${item.bill_number}`}>
+                        <Ionicons name="swap-horizontal" size={11} color={theme.color.warning} />
+                        <Text style={styles.exchangedBadgeText}>
+                          Exchanged {item.exchange_count}x
+                          {item.exchanged_at
+                            ? ` · last ${new Date(item.exchanged_at).toLocaleDateString("en-IN")}`
+                            : ""}
+                        </Text>
+                      </View>
+                    )}
+                  </>
                 )}
               </View>
               {!isEmployee && (
-                <View style={{ alignItems: "flex-end" }}>
+                <View style={{ alignItems: "flex-end", gap: 6 }}>
                   <Text style={styles.amount}>
                     {formatINRPlain(item.final_amount)}
                   </Text>
@@ -347,6 +397,18 @@ export default function SalesScreen() {
                       -{formatINRPlain(item.discount)} off
                     </Text>
                   )}
+                  <Pressable
+                    testID={`exchange-button-${item.bill_number}`}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      openExchange(item);
+                    }}
+                    style={styles.exchangeBtn}
+                    hitSlop={6}
+                  >
+                    <Ionicons name="swap-horizontal" size={13} color={theme.color.brandPrimary} />
+                    <Text style={styles.exchangeBtnText}>Exchange</Text>
+                  </Pressable>
                 </View>
               )}
             </Pressable>
@@ -363,6 +425,16 @@ export default function SalesScreen() {
           setStart(s);
           setEnd(e);
           setPickerOpen(false);
+        }}
+      />
+
+      <ExchangeModal
+        bill={exchangeBill}
+        inventory={inventory}
+        onClose={() => setExchangeBill(null)}
+        onComplete={() => {
+          setExchangeBill(null);
+          load(isEmployee ? "today" : filter, isEmployee ? "" : search, start, end);
         }}
       />
     </SafeAreaView>
@@ -473,6 +545,321 @@ export function DateRangeModal({
   );
 }
 
+/* ------------- Exchange modal ------------- */
+
+function ExchangeModal({
+  bill,
+  inventory,
+  onClose,
+  onComplete,
+}: {
+  bill: Bill | null;
+  inventory: InventoryItem[];
+  onClose: () => void;
+  onComplete: () => void;
+}) {
+  const [step, setStep] = useState<"pick-old" | "pick-new" | "settle">("pick-old");
+  const [oldLine, setOldLine] = useState<Bill["items"][number] | null>(null);
+  const [newItem, setNewItem] = useState<InventoryItem | null>(null);
+  const [newQty, setNewQty] = useState("1");
+  const [search, setSearch] = useState("");
+  const [cashAmount, setCashAmount] = useState("");
+  const [upiAmount, setUpiAmount] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const resetAll = () => {
+    setStep("pick-old");
+    setOldLine(null);
+    setNewItem(null);
+    setNewQty("1");
+    setSearch("");
+    setCashAmount("");
+    setUpiAmount("");
+    setError(null);
+    setSubmitting(false);
+  };
+
+  const handleClose = () => {
+    resetAll();
+    onClose();
+  };
+
+  if (!bill) return null;
+
+  const qtyNum = parseInt(newQty || "0", 10) || 0;
+  const oldLineTotal = oldLine ? oldLine.price * oldLine.qty : 0;
+  const newLineTotal = newItem ? newItem.price * qtyNum : 0;
+  const priceDiff = newLineTotal - oldLineTotal;
+
+  // Auto-fill settlement the same way the billing screen does: typing
+  // one field fills the other with the remainder needed to cover the
+  // difference, but either can still be overtyped freely.
+  const onCashChange = (val: string) => {
+    setCashAmount(val);
+    const c = parseFloat(val || "0") || 0;
+    const remainder = Math.round((priceDiff - c) * 100) / 100;
+    setUpiAmount(remainder === 0 ? "0" : String(remainder));
+  };
+  const onUpiChange = (val: string) => {
+    setUpiAmount(val);
+    const u = parseFloat(val || "0") || 0;
+    const remainder = Math.round((priceDiff - u) * 100) / 100;
+    setCashAmount(remainder === 0 ? "0" : String(remainder));
+  };
+
+  const settlement =
+    (parseFloat(cashAmount || "0") || 0) + (parseFloat(upiAmount || "0") || 0);
+  const settlementMatches = Math.abs(settlement - priceDiff) < 0.01;
+
+  const filteredInventory = inventory.filter((i) => {
+    if (i.current_qty <= 0 && i.id !== oldLine?.inv_id) return false;
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      i.item_name.toLowerCase().includes(q) ||
+      i.category.toLowerCase().includes(q) ||
+      i.item_id.toLowerCase().includes(q)
+    );
+  });
+
+  const onComplete_ = async () => {
+    if (!oldLine || !newItem) return;
+    if (qtyNum <= 0) {
+      setError("Enter a valid quantity");
+      return;
+    }
+    if (!settlementMatches) {
+      setError(
+        `Cash + UPI (${formatINRPlain(settlement)}) must equal the price difference (${formatINRPlain(priceDiff)})`
+      );
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      await api.exchangeBillItem({
+        bill_id: bill.id,
+        old_bill_item_id: oldLine.id,
+        new_inv_id: newItem.id,
+        new_qty: qtyNum,
+        cash_amount: parseFloat(cashAmount || "0") || 0,
+        upi_amount: parseFloat(upiAmount || "0") || 0,
+      });
+      resetAll();
+      onComplete();
+    } catch (e: any) {
+      setError(e.message || "Exchange failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal visible={!!bill} transparent animationType="slide" onRequestClose={handleClose}>
+      <View style={styles.exchangeOverlay}>
+        <View style={styles.exchangeSheet}>
+          <View style={styles.exchangeHeader}>
+            <Text style={styles.exchangeTitle}>Exchange Item</Text>
+            <Pressable testID="exchange-close" onPress={handleClose} hitSlop={8}>
+              <Ionicons name="close" size={22} color={theme.color.onSurface} />
+            </Pressable>
+          </View>
+          <Text style={styles.exchangeSubtitle}>Bill {bill.bill_number}</Text>
+
+          <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
+            {step === "pick-old" && (
+              <>
+                <Text style={styles.exchangeSectionLabel}>Which item is being returned?</Text>
+                {bill.items.map((line) => (
+                  <Pressable
+                    key={line.id}
+                    testID={`exchange-pick-old-${line.item_id}`}
+                    onPress={() => {
+                      setOldLine(line);
+                      setStep("pick-new");
+                    }}
+                    style={styles.exchangeLineRow}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.exchangeLineName}>{line.item_name}</Text>
+                      <Text style={styles.exchangeLineSub}>
+                        Qty {line.qty} · {formatINRPlain(line.price)} each
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={theme.color.onSurfaceTertiary} />
+                  </Pressable>
+                ))}
+              </>
+            )}
+
+            {step === "pick-new" && oldLine && (
+              <>
+                <View style={styles.exchangeArrowRow}>
+                  <View style={styles.exchangeSideCard}>
+                    <Text style={styles.exchangeSideLabel}>Returning</Text>
+                    <Text style={styles.exchangeSideName} numberOfLines={2}>
+                      {oldLine.item_name}
+                    </Text>
+                    <Text style={styles.exchangeSidePrice}>{formatINRPlain(oldLineTotal)}</Text>
+                  </View>
+                  <Ionicons name="swap-horizontal" size={22} color={theme.color.brandPrimary} />
+                  <View style={styles.exchangeSideCard}>
+                    <Text style={styles.exchangeSideLabel}>New Item</Text>
+                    <Text style={styles.exchangeSideNamePlaceholder}>Select below</Text>
+                  </View>
+                </View>
+
+                <TextInput
+                  testID="exchange-search"
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Search item to give instead"
+                  placeholderTextColor={theme.color.onSurfaceTertiary}
+                  style={styles.exchangeSearch}
+                />
+
+                <FlatList
+                  data={filteredInventory}
+                  keyExtractor={(i) => i.id}
+                  scrollEnabled={false}
+                  renderItem={({ item }) => (
+                    <Pressable
+                      testID={`exchange-pick-new-${item.item_id}`}
+                      onPress={() => {
+                        setNewItem(item);
+                        setStep("settle");
+                      }}
+                      style={styles.exchangeLineRow}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.exchangeLineName}>{item.item_name}</Text>
+                        <Text style={styles.exchangeLineSub}>
+                          {item.category} · {formatINRPlain(item.price)} · stock {item.current_qty}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={theme.color.onSurfaceTertiary} />
+                    </Pressable>
+                  )}
+                  ListEmptyComponent={
+                    <Text style={styles.exchangeEmpty}>No items found</Text>
+                  }
+                />
+              </>
+            )}
+
+            {step === "settle" && oldLine && newItem && (
+              <>
+                <View style={styles.exchangeArrowRow}>
+                  <View style={styles.exchangeSideCard}>
+                    <Text style={styles.exchangeSideLabel}>Returning</Text>
+                    <Text style={styles.exchangeSideName} numberOfLines={2}>
+                      {oldLine.item_name}
+                    </Text>
+                    <Text style={styles.exchangeSidePrice}>{formatINRPlain(oldLineTotal)}</Text>
+                  </View>
+                  <Ionicons name="swap-horizontal" size={22} color={theme.color.brandPrimary} />
+                  <View style={styles.exchangeSideCard}>
+                    <Text style={styles.exchangeSideLabel}>New Item</Text>
+                    <Text style={styles.exchangeSideName} numberOfLines={2}>
+                      {newItem.item_name}
+                    </Text>
+                    <Text style={styles.exchangeSidePrice}>{formatINRPlain(newLineTotal)}</Text>
+                  </View>
+                </View>
+
+                <Pressable
+                  testID="exchange-change-new-item"
+                  onPress={() => setStep("pick-new")}
+                  style={styles.exchangeChangeLink}
+                >
+                  <Text style={styles.exchangeChangeLinkText}>Change new item</Text>
+                </Pressable>
+
+                <Text style={[styles.exchangeSectionLabel, { marginTop: theme.spacing.lg }]}>
+                  Quantity of new item
+                </Text>
+                <TextInput
+                  testID="exchange-new-qty"
+                  value={newQty}
+                  onChangeText={setNewQty}
+                  keyboardType="number-pad"
+                  style={styles.exchangeSearch}
+                />
+
+                <View style={styles.exchangeDiffBox}>
+                  <Text style={styles.exchangeDiffLabel}>Price Difference</Text>
+                  <Text
+                    testID="exchange-price-diff"
+                    style={[
+                      styles.exchangeDiffValue,
+                      { color: priceDiff >= 0 ? theme.color.error : theme.color.success },
+                    ]}
+                  >
+                    {priceDiff >= 0
+                      ? `Customer pays ${formatINRPlain(priceDiff)}`
+                      : `Refund ${formatINRPlain(-priceDiff)}`}
+                  </Text>
+                </View>
+
+                <Text style={styles.exchangeSectionLabel}>Settle via</Text>
+                <View style={{ flexDirection: "row", gap: theme.spacing.md }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.exchangeFieldLabel}>Cash</Text>
+                    <TextInput
+                      testID="exchange-cash-input"
+                      value={cashAmount}
+                      onChangeText={onCashChange}
+                      keyboardType="numbers-and-punctuation"
+                      placeholder="0"
+                      placeholderTextColor={theme.color.onSurfaceTertiary}
+                      style={styles.exchangeSearch}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.exchangeFieldLabel}>UPI</Text>
+                    <TextInput
+                      testID="exchange-upi-input"
+                      value={upiAmount}
+                      onChangeText={onUpiChange}
+                      keyboardType="numbers-and-punctuation"
+                      placeholder="0"
+                      placeholderTextColor={theme.color.onSurfaceTertiary}
+                      style={styles.exchangeSearch}
+                    />
+                  </View>
+                </View>
+
+                {error && (
+                  <Text testID="exchange-error" style={styles.exchangeError}>
+                    {error}
+                  </Text>
+                )}
+
+                <Pressable
+                  testID="exchange-complete"
+                  onPress={onComplete_}
+                  disabled={submitting || qtyNum <= 0}
+                  style={[
+                    styles.exchangeCompleteBtn,
+                    (submitting || qtyNum <= 0) && { opacity: 0.5 },
+                  ]}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color={theme.color.onBrandPrimary} />
+                  ) : (
+                    <Text style={styles.exchangeCompleteBtnText}>Complete Exchange</Text>
+                  )}
+                </Pressable>
+              </>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.color.surface },
   header: {
@@ -520,10 +907,206 @@ const styles = StyleSheet.create({
   },
   billNo: { color: theme.color.onSurface, fontWeight: "700", fontSize: 14 },
   meta: { color: theme.color.onSurfaceTertiary, fontSize: 11, marginTop: 2 },
+  creatorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 4,
+  },
+  creatorDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  creatorText: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 10,
+    fontWeight: "600",
+  },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: theme.radius.pill },
   statusText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   amount: { color: theme.color.brandPrimary, fontSize: 16, fontWeight: "800" },
   discount: { color: theme.color.warning, fontSize: 11, marginTop: 2 },
+  exchangedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
+  exchangedBadgeText: {
+    color: theme.color.warning,
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  exchangeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderColor: theme.color.brandPrimary,
+    borderWidth: 1,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  exchangeBtnText: {
+    color: theme.color.brandPrimary,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  /* Exchange modal */
+  exchangeOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  exchangeSheet: {
+    backgroundColor: theme.color.surface,
+    maxHeight: "90%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopColor: theme.color.brandPrimary,
+    borderTopWidth: 1,
+    padding: theme.spacing.lg,
+  },
+  exchangeHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  exchangeTitle: { color: theme.color.onSurface, fontSize: 18, fontWeight: "700" },
+  exchangeSubtitle: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 12,
+    marginTop: 2,
+    marginBottom: theme.spacing.md,
+  },
+  exchangeSectionLabel: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: theme.spacing.sm,
+  },
+  exchangeLineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+  },
+  exchangeLineName: { color: theme.color.onSurface, fontWeight: "600", fontSize: 14 },
+  exchangeLineSub: { color: theme.color.onSurfaceTertiary, fontSize: 11, marginTop: 2 },
+  exchangeArrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.lg,
+  },
+  exchangeSideCard: {
+    flex: 1,
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    minHeight: 80,
+  },
+  exchangeSideLabel: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  exchangeSideName: {
+    color: theme.color.onSurface,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  exchangeSideNamePlaceholder: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 12,
+    fontStyle: "italic",
+    marginTop: 6,
+  },
+  exchangeSidePrice: {
+    color: theme.color.brandPrimary,
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 6,
+  },
+  exchangeChangeLink: { alignSelf: "flex-start", marginBottom: theme.spacing.sm },
+  exchangeChangeLinkText: {
+    color: theme.color.brandPrimary,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  exchangeSearch: {
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 12,
+    color: theme.color.onSurface,
+    fontSize: 15,
+    marginBottom: theme.spacing.md,
+  },
+  exchangeEmpty: {
+    color: theme.color.onSurfaceTertiary,
+    textAlign: "center",
+    marginTop: theme.spacing.lg,
+  },
+  exchangeDiffBox: {
+    backgroundColor: theme.color.brandTertiary,
+    borderColor: theme.color.brandPrimary,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
+    alignItems: "center",
+  },
+  exchangeDiffLabel: {
+    color: theme.color.onBrandTertiary,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  exchangeDiffValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  exchangeFieldLabel: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 11,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  exchangeError: {
+    color: theme.color.error,
+    fontSize: 12,
+    marginBottom: theme.spacing.md,
+  },
+  exchangeCompleteBtn: {
+    backgroundColor: theme.color.brandPrimary,
+    paddingVertical: 16,
+    borderRadius: theme.radius.md,
+    alignItems: "center",
+    marginTop: theme.spacing.sm,
+  },
+  exchangeCompleteBtnText: {
+    color: theme.color.onBrandPrimary,
+    fontWeight: "800",
+    fontSize: 15,
+  },
 
   /* Month revenue summary card */
   monthSummaryCard: {

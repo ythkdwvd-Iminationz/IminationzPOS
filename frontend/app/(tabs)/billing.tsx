@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -14,8 +14,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, InventoryItem, CustomerInfo, clearToken } from "@/src/api/client";
+import { api, InventoryItem, CustomerInfo, logout } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
+import { useDraftBilling } from "@/src/draft/useDraftBilling";
+import { DraftCartLine } from "@/src/draft/draftBillingStorage";
 import { useRole } from "@/src/hooks/use-role";
 
 // Display-only rounding: 120.5+ -> 121, 120.4 and below -> 120 (standard Math.round)
@@ -30,11 +32,6 @@ export default function BillingScreen() {
   const router = useRouter();
   const { role } = useRole();
   const isEmployee = role === "employee";
-
-  const onLogout = async () => {
-    await clearToken();
-    router.replace("/");
-  };
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -55,6 +52,35 @@ export default function BillingScreen() {
   const [tempCustomerName, setTempCustomerName] = useState("");
   const [tempCustomerInfo, setTempCustomerInfo] = useState<CustomerInfo | null>(null);
 
+  // ---- Persistent draft billing (survives app backgrounding/kill) ----
+  const draft = useDraftBilling();
+  // True once we've applied a restored draft (or confirmed there was
+  // none) — prevents the auto-save effect from firing with empty state
+  // and overwriting a not-yet-restored draft before it's been applied.
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  // Shown briefly so the user knows their bill came back after a reload.
+  const [showRestoredBanner, setShowRestoredBanner] = useState(false);
+  // Guards against a double-submit creating two invoices — e.g. if the
+  // Android app is killed mid-request and the user retries, or a
+  // duplicate tap slips through before `submitting` state re-renders.
+  const submitLockRef = useRef(false);
+
+  // Employee-only logout (owner logs out from the Dashboard screen
+  // instead — this button only ever renders when isEmployee is true).
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const onConfirmLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logout();
+      router.replace("/");
+    } finally {
+      setLoggingOut(false);
+      setLogoutConfirmOpen(false);
+    }
+  };
+
   const load = useCallback(async () => {
     try {
       const res = await api.listInventory();
@@ -71,6 +97,69 @@ export default function BillingScreen() {
       load();
     }, [load])
   );
+
+  // ---- Apply restored draft once inventory + draft load have both settled ----
+  // We wait for inventory so we can re-match each saved cart line against
+  // the *current* InventoryItem (price/stock may have changed while the
+  // app was backgrounded) rather than trusting stale cached item data.
+  useEffect(() => {
+    if (draftHydrated) return;
+    if (loading) return; // inventory still loading
+    if (draft.restoring) return; // draft read from disk still in flight
+
+    if (draft.restoredDraft && draft.restoredDraft.cart.length > 0) {
+      const rebuiltCart: CartLine[] = [];
+      for (const line of draft.restoredDraft.cart) {
+        const live = inventory.find((i) => i.id === line.inv.id);
+        if (live) {
+          // Cap restored qty to current stock in case stock dropped
+          // (e.g. another device sold the item) while this draft sat
+          // on disk.
+          const safeQty = Math.min(line.qty, Math.max(live.current_qty, 0));
+          if (safeQty > 0) {
+            rebuiltCart.push({ inv: live, qty: safeQty });
+          }
+        }
+        // If the item no longer exists in inventory at all, it's
+        // silently dropped from the restored cart rather than crashing
+        // the restore — better to recover most of the draft than none.
+      }
+      setCart(rebuiltCart);
+      setCashAmount(draft.restoredDraft.cashAmount || "");
+      setUpiAmount(draft.restoredDraft.upiAmount || "");
+      setTempCustomerMobile(draft.restoredDraft.tempCustomerMobile || "");
+      setTempCustomerName(draft.restoredDraft.tempCustomerName || "");
+      setTempCustomerInfo(draft.restoredDraft.tempCustomerInfo || null);
+
+      if (rebuiltCart.length > 0) {
+        setShowRestoredBanner(true);
+      }
+    }
+    setDraftHydrated(true);
+  }, [draft.restoring, draft.restoredDraft, loading, inventory, draftHydrated]);
+
+  // ---- Auto-save draft on every relevant change, once hydrated ----
+  useEffect(() => {
+    if (!draftHydrated) return; // don't save until restore has settled
+    const draftCart: DraftCartLine[] = cart.map((l) => ({ inv: l.inv, qty: l.qty }));
+    draft.scheduleSave({
+      cart: draftCart,
+      cashAmount,
+      upiAmount,
+      tempCustomerMobile,
+      tempCustomerName,
+      tempCustomerInfo,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    draftHydrated,
+    cart,
+    cashAmount,
+    upiAmount,
+    tempCustomerMobile,
+    tempCustomerName,
+    tempCustomerInfo,
+  ]);
 
   const { gross, discount, finalAmount, paid, payable, isValid, status } = useMemo(() => {
     const gross = cart.reduce((s, l) => s + l.inv.price * l.qty, 0);
@@ -193,6 +282,11 @@ export default function BillingScreen() {
     setTempCustomerMobile("");
     setTempCustomerName("");
     setTempCustomerInfo(null);
+    setShowRestoredBanner(false);
+    // Explicit cancel of the current bill — the draft requirement says
+    // "remove the draft only after the invoice is successfully completed
+    // or explicitly cancelled," and tapping Reset is exactly that.
+    draft.clearDraft();
   };
 
   const onMobileBlur = async (mobile: string) => {
@@ -225,6 +319,13 @@ export default function BillingScreen() {
   };
 
   const submit = async () => {
+    // Duplicate-invoice guard: if the app was killed mid-request and the
+    // user retries, or a stray double-tap slips through before React
+    // re-renders `submitting` as true, this ref-based lock (synchronous,
+    // unlike state) blocks a second concurrent submit from firing.
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+
     setError(null);
     setSubmitting(true);
     try {
@@ -242,14 +343,21 @@ export default function BillingScreen() {
           line_total: l.inv.price * l.qty,
         })),
       });
+      // Bill is confirmed created server-side at this point — safe to
+      // delete the local draft now, and only now.
+      await draft.clearDraft();
       reset();
       setCustomerModalOpen(false);
       router.push(`/invoice/${bill.id}`);
       load();
     } catch (e: any) {
       setError(e.message);
+      // Submission failed (network error, validation error, stock
+      // changed, etc.) — draft stays intact so the user doesn't lose
+      // their bill and can retry.
     } finally {
       setSubmitting(false);
+      submitLockRef.current = false;
     }
   };
 
@@ -293,25 +401,38 @@ export default function BillingScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>New Bill</Text>
+          <Text style={styles.title}>New Bill</Text>
+          <View style={styles.headerBtns}>
+            <Pressable testID="reset-bill" onPress={reset} style={styles.resetBtn}>
+              <Ionicons name="refresh" size={18} color={theme.color.onSurface} />
+            </Pressable>
             {isEmployee && (
-              <Text style={styles.roleTag}>Employee mode · Billing only</Text>
+              <Pressable
+                testID="logout-button"
+                onPress={() => setLogoutConfirmOpen(true)}
+                style={styles.resetBtn}
+              >
+                <Ionicons name="log-out-outline" size={18} color={theme.color.error} />
+              </Pressable>
             )}
           </View>
-          <Pressable testID="reset-bill" onPress={reset} style={styles.resetBtn}>
-            <Ionicons name="refresh" size={18} color={theme.color.onSurface} />
-          </Pressable>
-          {isEmployee && (
-            <Pressable
-              testID="employee-logout"
-              onPress={onLogout}
-              style={[styles.resetBtn, { marginLeft: 8 }]}
-            >
-              <Ionicons name="log-out-outline" size={18} color={theme.color.onSurface} />
-            </Pressable>
-          )}
         </View>
+
+        {showRestoredBanner && (
+          <View testID="draft-restored-banner" style={styles.draftBanner}>
+            <Ionicons name="time-outline" size={15} color={theme.color.brandPrimary} />
+            <Text style={styles.draftBannerText}>
+              Restored your in-progress bill
+            </Text>
+            <Pressable
+              testID="draft-restored-dismiss"
+              onPress={() => setShowRestoredBanner(false)}
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={16} color={theme.color.onSurfaceTertiary} />
+            </Pressable>
+          </View>
+        )}
 
         {/* Main content area */}
         <View style={{ flex: 1, display: "flex", flexDirection: "column" }}>
@@ -349,7 +470,18 @@ export default function BillingScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.lineName}>{l.inv.item_name}</Text>
                       <Text style={styles.lineSub}>
-                        {fmt(l.inv.price)} · stock {l.inv.current_qty}
+                        {fmt(l.inv.price)} · stock{" "}
+                        <Text
+                          style={{
+                            color:
+                              l.inv.current_qty <= 5
+                                ? theme.color.error
+                                : theme.color.success,
+                            fontWeight: "700",
+                          }}
+                        >
+                          {l.inv.current_qty}
+                        </Text>
                       </Text>
                     </View>
                     <View style={styles.qtyBox}>
@@ -583,7 +715,12 @@ export default function BillingScreen() {
                         <View
                           style={[
                             styles.itemCardStock,
-                            item.current_qty <= 5 && { backgroundColor: theme.color.error },
+                            {
+                              backgroundColor:
+                                item.current_qty <= 5
+                                  ? theme.color.error
+                                  : theme.color.success,
+                            },
                           ]}
                         >
                           <Text style={styles.itemCardStockText}>Qty {item.current_qty}</Text>
@@ -744,6 +881,51 @@ export default function BillingScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* Logout confirmation — employee only */}
+        {isEmployee && (
+          <Modal
+            visible={logoutConfirmOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setLogoutConfirmOpen(false)}
+          >
+            <View style={styles.logoutOverlay}>
+              <View style={styles.logoutBox}>
+                <Ionicons name="log-out-outline" size={28} color={theme.color.error} />
+                <Text style={styles.logoutTitle}>Log out?</Text>
+                <Text style={styles.logoutBody}>
+                  You'll need to sign in again to create bills.
+                  {cart.length > 0
+                    ? " Your current draft bill will be saved and restored next time you log in."
+                    : ""}
+                </Text>
+                <View style={styles.logoutActions}>
+                  <Pressable
+                    testID="logout-cancel"
+                    onPress={() => setLogoutConfirmOpen(false)}
+                    disabled={loggingOut}
+                    style={[styles.cancelBtn, loggingOut && { opacity: 0.5 }]}
+                  >
+                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    testID="logout-confirm"
+                    onPress={onConfirmLogout}
+                    disabled={loggingOut}
+                    style={[styles.logoutConfirmBtn, loggingOut && { opacity: 0.5 }]}
+                  >
+                    {loggingOut ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.logoutConfirmBtnText}>Log Out</Text>
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -762,7 +944,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   title: { color: theme.color.onSurface, fontSize: 22, fontWeight: "700" },
-  roleTag: { color: theme.color.brandPrimary, fontSize: 11, fontWeight: "600", marginTop: 2, letterSpacing: 0.5 },
+  headerBtns: { flexDirection: "row", gap: theme.spacing.sm },
   resetBtn: {
     width: 40,
     height: 40,
@@ -770,6 +952,22 @@ const styles = StyleSheet.create({
     backgroundColor: theme.color.surfaceSecondary,
     alignItems: "center",
     justifyContent: "center",
+  },
+  draftBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: theme.color.brandTertiary,
+    borderBottomColor: theme.color.brandPrimary,
+    borderBottomWidth: 1,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: 10,
+  },
+  draftBannerText: {
+    flex: 1,
+    color: theme.color.brandPrimary,
+    fontSize: 12,
+    fontWeight: "700",
   },
   topSection: {
     paddingHorizontal: theme.spacing.lg,
@@ -1162,6 +1360,55 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: {
     color: theme.color.onSurfaceSecondary,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  logoutOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: theme.spacing.lg,
+  },
+  logoutBox: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: theme.color.surface,
+    borderRadius: theme.radius.lg,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    padding: theme.spacing.xl,
+    alignItems: "center",
+  },
+  logoutTitle: {
+    color: theme.color.onSurface,
+    fontSize: 18,
+    fontWeight: "700",
+    marginTop: theme.spacing.sm,
+  },
+  logoutBody: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 13,
+    textAlign: "center",
+    marginTop: theme.spacing.sm,
+    lineHeight: 18,
+  },
+  logoutActions: {
+    flexDirection: "row",
+    gap: theme.spacing.md,
+    marginTop: theme.spacing.lg,
+    width: "100%",
+  },
+  logoutConfirmBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.color.error,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoutConfirmBtnText: {
+    color: "#fff",
     fontSize: 15,
     fontWeight: "700",
   },

@@ -12,8 +12,20 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { api, Bill } from "@/src/api/client";
+import { api, Bill, ExchangeHistoryEntry } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
+
+// The receipt is meant to look like a physical paper receipt — always
+// white with black ink — regardless of whether the surrounding app is
+// running a light or dark theme. `theme.color.surfaceInverse` is NOT
+// the right token for this: it's designed to be "whatever's opposite
+// the current app surface," which flips meaning whenever the app theme
+// changes (it was near-white under the old dark theme, but is now
+// near-black under the new light theme — that's exactly what caused
+// the receipt to render with a black background after the theme swap).
+// A receipt needs a fixed, theme-independent color instead.
+const RECEIPT_PAPER = "#FFFFFF";
+const RECEIPT_INK = "#000000";
 
 export default function InvoiceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -21,12 +33,23 @@ export default function InvoiceScreen() {
   const [bill, setBill] = useState<Bill | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exchangeHistory, setExchangeHistory] = useState<ExchangeHistoryEntry[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
         const b = await api.getBill(id);
         setBill(b);
+        // Only bother fetching history for bills that were actually
+        // exchanged — most bills never touch this table.
+        if ((b.exchange_count || 0) > 0) {
+          try {
+            const hist = await api.getExchangeHistory(id);
+            setExchangeHistory(hist);
+          } catch {
+            // Non-fatal — the invoice still renders fine without history.
+          }
+        }
       } catch (e: any) {
         setError(e.message);
       } finally {
@@ -131,6 +154,40 @@ export default function InvoiceScreen() {
               </View>
             ))}
 
+            {exchangeHistory.length > 0 && (
+              <>
+                <View style={styles.dash} />
+                <Text style={styles.exchangeHistTitle}>Exchange Record</Text>
+                {exchangeHistory.map((ex) => (
+                  <View key={ex.id} style={styles.exchangeHistRow} testID={`invoice-exchange-${ex.id}`}>
+                    <Text style={styles.exchangeHistDate}>
+                      {new Date(ex.exchanged_at).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                      {" · "}
+                      {new Date(ex.exchanged_at).toLocaleTimeString("en-IN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </Text>
+                    <Text style={styles.exchangeHistLine}>
+                      Returned: {ex.old_item_name} (x{ex.old_qty}) — {formatINRPlain(ex.old_line_total)}
+                    </Text>
+                    <Text style={styles.exchangeHistLine}>
+                      Given: {ex.new_item_name} (x{ex.new_qty}) — {formatINRPlain(ex.new_line_total)}
+                    </Text>
+                    <Text style={styles.exchangeHistDiff}>
+                      {ex.price_diff >= 0
+                        ? `Customer paid ${formatINRPlain(ex.price_diff)}`
+                        : `Refunded ${formatINRPlain(-ex.price_diff)}`}
+                    </Text>
+                  </View>
+                ))}
+              </>
+            )}
+
             <View style={styles.dash} />
 
             <Row k="Gross" v={formatINRPlain(bill.gross_amount)} />
@@ -182,7 +239,7 @@ function Row({ k, v, bold, big }: { k: string; v: string; bold?: boolean; big?: 
   return (
     <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 4 }}>
       <Text style={{ color: "#444", fontSize: big ? 15 : 12, fontWeight: bold ? "700" : "500" }}>{k}</Text>
-      <Text style={{ color: "#000", fontSize: big ? 18 : 12, fontWeight: bold ? "800" : "600" }}>{v}</Text>
+      <Text style={{ color: RECEIPT_INK, fontSize: big ? 18 : 12, fontWeight: bold ? "800" : "600" }}>{v}</Text>
     </View>
   );
 }
@@ -210,17 +267,55 @@ const styles = StyleSheet.create({
   title: { color: theme.color.onSurface, fontSize: 18, fontWeight: "700" },
   errText: { color: theme.color.error, textAlign: "center", marginTop: 24 },
   receipt: {
-    backgroundColor: theme.color.surfaceInverse,
+    // FIX: was `theme.color.surfaceInverse`, which now resolves to a
+    // near-black color under the new light theme (it flipped meaning
+    // when the app theme changed). A receipt should always be white
+    // paper with black ink, independent of the app's theme — using a
+    // fixed constant instead of a theme-relative token.
+    backgroundColor: RECEIPT_PAPER,
     borderRadius: theme.radius.md,
     padding: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
   },
-  store: { fontSize: 24, fontWeight: "900", color: "#000", textAlign: "center", letterSpacing: 3 },
+  store: { fontSize: 24, fontWeight: "900", color: RECEIPT_INK, textAlign: "center", letterSpacing: 3 },
   tag: { fontSize: 11, color: "#666", textAlign: "center", marginTop: 2, letterSpacing: 2 },
   dash: { borderTopWidth: 1, borderTopColor: "#bbb", borderStyle: "dashed", marginVertical: 8 },
+  exchangeHistTitle: {
+    color: "#333",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  exchangeHistRow: {
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  exchangeHistDate: {
+    color: "#888",
+    fontSize: 10,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
+  exchangeHistLine: {
+    color: RECEIPT_INK,
+    fontSize: 11,
+    marginTop: 1,
+  },
+  exchangeHistDiff: {
+    color: "#9B111E",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 3,
+  },
   thead: { flexDirection: "row", marginTop: 4 },
   th: { color: "#333", fontWeight: "700", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 },
   tr: { flexDirection: "row", paddingVertical: 4 },
-  td: { color: "#000", fontSize: 12 },
+  td: { color: RECEIPT_INK, fontSize: 12 },
   paidStamp: {
     alignSelf: "center",
     borderWidth: 3,
