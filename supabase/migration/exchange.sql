@@ -27,31 +27,48 @@ alter table public.bills
     check (last_exchanged_by_role in ('owner','employee'));
 
 -- 2. exchange_history table ------------------------------------------
+--    Uses add-column-if-not-exists so a partially-created table from an
+--    earlier failed run is upgraded to the full schema.
 
 create table if not exists public.exchange_history (
-  id                  uuid primary key default uuid_generate_v4(),
-  bill_id             uuid not null references public.bills(id) on delete cascade,
-  bill_number         text not null,
-  old_bill_item_id    uuid,
-  old_inv_id          uuid,
-  old_item_id         text not null,
-  old_item_name       text not null,
-  old_qty             integer not null,
-  old_price           numeric(12,2) not null,
-  old_line_total      numeric(12,2) not null,
-  new_inv_id          uuid,
-  new_item_id         text not null,
-  new_item_name       text not null,
-  new_qty             integer not null,
-  new_price           numeric(12,2) not null,
-  new_line_total      numeric(12,2) not null,
-  price_diff          numeric(12,2) not null,
-  cash_settled        numeric(12,2) not null default 0,
-  upi_settled         numeric(12,2) not null default 0,
-  exchanged_at        timestamptz not null default now(),
-  exchanged_by_email  text,
-  exchanged_by_role   text check (exchanged_by_role in ('owner','employee'))
+  id uuid primary key default uuid_generate_v4()
 );
+
+alter table public.exchange_history
+  add column if not exists bill_id             uuid,
+  add column if not exists bill_number         text,
+  add column if not exists old_bill_item_id    uuid,
+  add column if not exists old_inv_id          uuid,
+  add column if not exists old_item_id         text,
+  add column if not exists old_item_name       text,
+  add column if not exists old_qty             integer,
+  add column if not exists old_price           numeric(12,2),
+  add column if not exists old_line_total      numeric(12,2),
+  add column if not exists new_inv_id          uuid,
+  add column if not exists new_item_id         text,
+  add column if not exists new_item_name       text,
+  add column if not exists new_qty             integer,
+  add column if not exists new_price           numeric(12,2),
+  add column if not exists new_line_total      numeric(12,2),
+  add column if not exists price_diff          numeric(12,2),
+  add column if not exists cash_settled        numeric(12,2) default 0,
+  add column if not exists upi_settled         numeric(12,2) default 0,
+  add column if not exists exchanged_at        timestamptz default now(),
+  add column if not exists exchanged_by_email  text,
+  add column if not exists exchanged_by_role   text;
+
+-- FK to bills (add only if missing)
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'exchange_history_bill_id_fkey'
+  ) then
+    alter table public.exchange_history
+      add constraint exchange_history_bill_id_fkey
+      foreign key (bill_id) references public.bills(id) on delete cascade;
+  end if;
+end $$;
 
 create index if not exists idx_exchange_history_bill_id
   on public.exchange_history(bill_id);
