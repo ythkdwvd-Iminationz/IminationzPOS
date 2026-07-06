@@ -140,15 +140,6 @@ export default function InventoryScreen() {
     }
   };
 
-  const del = async (it: InventoryItem) => {
-    try {
-      await api.deleteInventory(it.id);
-      load();
-    } catch (e: any) {
-      setError(e.message);
-    }
-  };
-
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
@@ -241,9 +232,6 @@ export default function InventoryScreen() {
                 </View>
                 <Pressable testID={`edit-${item.item_id}`} onPress={() => openEdit(item)} style={styles.iconBtn}>
                   <Ionicons name="pencil" size={16} color={theme.color.onSurface} />
-                </Pressable>
-                <Pressable testID={`del-${item.item_id}`} onPress={() => del(item)} style={styles.iconBtn}>
-                  <Ionicons name="trash" size={16} color={theme.color.error} />
                 </Pressable>
               </View>
             );
