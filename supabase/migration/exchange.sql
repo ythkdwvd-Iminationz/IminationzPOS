@@ -64,10 +64,11 @@ create policy "auth full access" on public.exchange_history
   for all to authenticated using (true) with check (true);
 
 -- 3. Refresh v_bills_full view so new bill columns are exposed --------
---    (b.* automatically picks them up, but re-creating forces PostgREST
---     to refresh its cached column list.)
+--    b.* now includes the new exchange columns, so the view's column
+--    layout changes and create-or-replace won't work. Drop + recreate.
 
-create or replace view public.v_bills_full as
+drop view if exists public.v_bills_full;
+create view public.v_bills_full as
 select
   b.*,
   coalesce(
