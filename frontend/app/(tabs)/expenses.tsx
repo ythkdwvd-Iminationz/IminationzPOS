@@ -325,10 +325,6 @@ export default function ExpensesScreen() {
                 key={it.id}
                 item={it}
                 onOpen={() => setDetail(it)}
-                onDelete={async () => {
-                  await expensesApi.remove(it.id);
-                  load();
-                }}
               />
             ))
           )}
@@ -377,11 +373,6 @@ export default function ExpensesScreen() {
       <ExpenseDetailModal
         item={detail}
         onClose={() => setDetail(null)}
-        onDelete={async (id) => {
-          await expensesApi.remove(id);
-          setDetail(null);
-          load();
-        }}
       />
     </SafeAreaView>
   );
@@ -392,11 +383,9 @@ export default function ExpensesScreen() {
 function ExpenseDetailModal({
   item,
   onClose,
-  onDelete,
 }: {
   item: Expense | null;
   onClose: () => void;
-  onDelete: (id: string) => void;
 }) {
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -478,15 +467,6 @@ function ExpenseDetailModal({
                 <Text style={styles.detailNoReceiptText}>No receipt attached</Text>
               </View>
             )}
-
-            <Pressable
-              testID="detail-delete-btn"
-              onPress={() => setConfirm(true)}
-              style={styles.detailDelBtn}
-            >
-              <Ionicons name="trash-outline" size={16} color="#fff" />
-              <Text style={styles.detailDelText}>Delete Expense</Text>
-            </Pressable>
           </ScrollView>
         </View>
       </View>
@@ -598,11 +578,9 @@ function SummaryCard({
 
 function ExpenseRow({
   item,
-  onDelete,
   onOpen,
 }: {
   item: Expense;
-  onDelete: () => void;
   onOpen: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
@@ -642,46 +620,7 @@ function ExpenseRow({
             />
           </View>
         ) : null}
-        <Pressable
-          testID={`expense-delete-${item.id}`}
-          onPress={(e) => {
-            e.stopPropagation();
-            setConfirm(true);
-          }}
-          style={styles.delBtn}
-        >
-          <Ionicons name="trash-outline" size={16} color={theme.color.error} />
-        </Pressable>
       </Pressable>
-
-      <Modal transparent visible={confirm} animationType="fade">
-        <View style={styles.confirmOverlay}>
-          <View style={styles.confirmBox}>
-            <Text style={styles.confirmTitle}>Delete this expense?</Text>
-            <Text style={styles.confirmBody}>
-              This will restore {formatINRPlain(item.amount)} to your balances.
-            </Text>
-            <View style={styles.confirmRow}>
-              <Pressable
-                onPress={() => setConfirm(false)}
-                style={[styles.confirmBtn, { backgroundColor: theme.color.surfaceTertiary }]}
-              >
-                <Text style={styles.confirmBtnText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                testID={`expense-delete-confirm-${item.id}`}
-                onPress={() => {
-                  setConfirm(false);
-                  onDelete();
-                }}
-                style={[styles.confirmBtn, { backgroundColor: theme.color.error }]}
-              >
-                <Text style={[styles.confirmBtnText, { color: "#fff" }]}>Delete</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </>
   );
 }
