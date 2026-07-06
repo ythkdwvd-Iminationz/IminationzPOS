@@ -1,0 +1,17 @@
+# Landing page — Netlify config
+# Deploy this folder as its own Netlify site (Publish directory = `landing`)
+# or drag-and-drop the folder into app.netlify.com/drop.
+
+[build]
+  publish = "."
+
+# Long-cache the logo, short-cache the HTML so config edits appear on next reload
+[[headers]]
+  for = "/logo.png"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
