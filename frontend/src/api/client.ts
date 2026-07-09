@@ -601,6 +601,61 @@ export const api = {
 };
 
 // ---------- Expenses ----------
+// ---------- Expenses Types ----------
+export interface ExpenseItem {
+  id?: string;
+  expense_id?: string;
+  amount: number;
+  source: "personal" | "business" | "both";
+  personal_amount: number;
+  business_amount: number;
+  note: string | null;
+}
+
+export interface Expense {
+  id: string;
+  expense_date: string; // YYYY-MM-DD
+  parent_name: string;  // The overall description/title of the batch
+  total_amount: number;
+  amount: number;        // Alias for compatibility with old components
+  source: "personal" | "business" | "both";
+  personal_amount: number;
+  business_amount: number;
+  note: string | null;   // Concatenated or structural overview summary
+  receipt_base64: string | null;
+  receipt_mime: string | null;
+  created_at: string;
+  items?: ExpenseItem[]; // Nested child records
+}
+
+export interface ExpenseOverview {
+  personal_fund_total: number;
+  business_fund_total: number;
+  personal_spent: number;
+  business_spent: number;
+  personal_balance: number;
+  business_balance: number;
+  total_expenses: number;
+  entries: number;
+}
+
+// ---------- Enhanced Date Formatter ----------
+export function formatDisplayDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  const cleanDate = dateStr.split("T")[0]; // handle timestamp strings gracefully
+  const [year, month, day] = cleanDate.split("-");
+  if (!year || !month || !day) return dateStr;
+
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  
+  const monthName = months[parseInt(month, 10) - 1] || month;
+  return `${parseInt(day, 10)} ${monthName} ${year}`;
+}
+
+// ---------- Updated Expenses API Surface ----------
 export const expensesApi = {
   overview: async (): Promise<ExpenseOverview> => {
     const [salesRes, expRes, setRes] = await Promise.all([
@@ -616,23 +671,15 @@ export const expensesApi = {
     ]);
     if (salesRes.error) throw new Error(salesRes.error.message);
     if (expRes.error) throw new Error(expRes.error.message);
-    // setRes may fail if table missing — throw a clearer error
     if (setRes.error && !setRes.error.message.includes("row"))
       throw new Error(setRes.error.message);
 
-    const business_fund_total = round2(
-      sum(salesRes.data || [], (b: any) => Number(b.final_amount))
-    );
-    const personal_spent = round2(
-      sum(expRes.data || [], (e: any) => Number(e.personal_amount))
-    );
-    const business_spent = round2(
-      sum(expRes.data || [], (e: any) => Number(e.business_amount))
-    );
-    const total_expenses = round2(
-      sum(expRes.data || [], (e: any) => Number(e.amount))
-    );
+    const business_fund_total = round2(sum(salesRes.data || [], (b: any) => Number(b.final_amount)));
+    const personal_spent = round2(sum(expRes.data || [], (e: any) => Number(e.personal_amount)));
+    const business_spent = round2(sum(expRes.data || [], (e: any) => Number(e.business_amount)));
+    const total_expenses = round2(sum(expRes.data || [], (e: any) => Number(e.amount)));
     const personal_fund_total = Number(setRes.data?.value_num ?? 200000);
+
     return {
       personal_fund_total,
       business_fund_total,
@@ -646,32 +693,114 @@ export const expensesApi = {
   },
 
   list: async (): Promise<Expense[]> => {
+    // Fetches parent records along with their child line items
     const { data, error } = await supabase
       .from("expenses")
-      .select("*")
+      .select(`
+        *,
+        items:expense_items(*)
+      `)
       .order("expense_date", { ascending: false })
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return (data || []) as Expense[];
+    
+    return (data || []).map((e: any) => ({
+      ...e,
+      parent_name: e.parent_name || e.note || "Unnamed Batch",
+      total_amount: e.amount
+    })) as Expense[];
   },
 
   create: async (body: {
     expense_date: string;
+    parent_name: string;
     amount: number;
     source: "personal" | "business" | "both";
     personal_amount: number;
     business_amount: number;
-    note?: string | null;
+    note: string | null;
     receipt_base64?: string | null;
     receipt_mime?: string | null;
+    items: ExpenseItem[];
   }): Promise<Expense> => {
-    const { data, error } = await supabase
+    // 1. Insert Parent
+    const { data: parent, error: pErr } = await supabase
       .from("expenses")
-      .insert(body)
+      .insert({
+        expense_date: body.expense_date,
+        parent_name: body.parent_name,
+        amount: body.amount,
+        source: body.source,
+        personal_amount: body.personal_amount,
+        business_amount: body.business_amount,
+        note: body.note,
+        receipt_base64: body.receipt_base64,
+        receipt_mime: body.receipt_mime
+      })
       .select()
       .single();
-    if (error) throw new Error(error.message);
-    return data as Expense;
+
+    if (pErr) throw new Error(pErr.message);
+
+    // 2. Insert Children Linked to Parent
+    if (body.items && body.items.length > 0) {
+      const childrenPayload = body.items.map(item => ({
+        expense_id: parent.id,
+        amount: item.amount,
+        source: item.source,
+        personal_amount: item.personal_amount,
+        business_amount: item.business_amount,
+        note: item.note
+      }));
+
+      const { error: cErr } = await supabase.from("expense_items").insert(childrenPayload);
+      if (cErr) throw new Error("Parent saved, but child line items failed: " + cErr.message);
+    }
+
+    return parent as Expense;
+  },
+
+  update: async (id: string, body: {
+    expense_date: string;
+    parent_name: string;
+    amount: number;
+    source: "personal" | "business" | "both";
+    personal_amount: number;
+    business_amount: number;
+    note: string | null;
+    items: ExpenseItem[];
+  }): Promise<void> => {
+    // 1. Update parent row
+    const { error: pErr } = await supabase
+      .from("expenses")
+      .update({
+        expense_date: body.expense_date,
+        parent_name: body.parent_name,
+        amount: body.amount,
+        source: body.source,
+        personal_amount: body.personal_amount,
+        business_amount: body.business_amount,
+        note: body.note
+      })
+      .eq("id", id);
+    if (pErr) throw new Error(pErr.message);
+
+    // 2. Drop historical child items and rewrite current stack state
+    const { error: dErr } = await supabase.from("expense_items").delete().eq("expense_id", id);
+    if (dErr) throw new Error(dErr.message);
+
+    if (body.items && body.items.length > 0) {
+      const childrenPayload = body.items.map(item => ({
+        expense_id: id,
+        amount: item.amount,
+        source: item.source,
+        personal_amount: item.personal_amount,
+        business_amount: item.business_amount,
+        note: item.note
+      }));
+      const { error: cErr } = await supabase.from("expense_items").insert(childrenPayload);
+      if (cErr) throw new Error(cErr.message);
+    }
   },
 
   setPersonalFund: async (value: number) => {
@@ -685,10 +814,8 @@ export const expensesApi = {
     return { ok: true };
   },
 
-  diagnose: async (): Promise<
-    { table: string; ok: boolean; message: string }[]
-  > => {
-    const tables = ["bills", "inventory", "expenses", "app_settings"];
+  diagnose: async (): Promise<{ table: string; ok: boolean; message: string }[]> => {
+    const tables = ["bills", "inventory", "expenses", "expense_items", "app_settings"];
     const out: { table: string; ok: boolean; message: string }[] = [];
     for (const t of tables) {
       const { error } = await supabase.from(t).select("*").limit(1);
