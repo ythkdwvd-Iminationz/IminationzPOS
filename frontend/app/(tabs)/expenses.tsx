@@ -330,7 +330,6 @@ function ExpenseFormBatchModal({
   };
 
   const onDateChange = (event: any, selectedDate?: Date) => {
-    // Dismiss picker overlay directly on Android
     if (Platform.OS === "android") {
       setShowDatePicker(false);
     }
@@ -421,21 +420,44 @@ function ExpenseFormBatchModal({
 
             <Text style={styles.label}>Log Event Date</Text>
             <View style={styles.dateRow}>
-              <Pressable 
-                onPress={() => setShowDatePicker(true)} 
-                style={[styles.input, { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48 }]}
-              >
-                <Text style={{ color: theme.color.onSurface, fontSize: 15 }}>
-                  {formatDisplayDate(date) || "Select a date..."}
-                </Text>
-                <Ionicons name="calendar-outline" size={18} color={theme.color.brandPrimary} />
-              </Pressable>
+              {Platform.OS === "web" ? (
+                <input
+                  type="date"
+                  value={date}
+                  max={todayISO()}
+                  onChange={(e) => setDate(e.target.value)}
+                  style={{
+                    flex: 1,
+                    backgroundColor: theme.color.surfaceSecondary,
+                    borderColor: theme.color.border,
+                    borderWidth: 1,
+                    borderRadius: 8,
+                    padding: "12px",
+                    color: theme.color.onSurface,
+                    fontSize: "15px",
+                    fontFamily: "inherit",
+                    outline: "none",
+                    minHeight: "48px",
+                  }}
+                />
+              ) : (
+                <Pressable 
+                  onPress={() => setShowDatePicker(true)} 
+                  style={[styles.input, { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48 }]}
+                >
+                  <Text style={{ color: theme.color.onSurface, fontSize: 15 }}>
+                    {formatDisplayDate(date) || "Select a date..."}
+                  </Text>
+                  <Ionicons name="calendar-outline" size={18} color={theme.color.brandPrimary} />
+                </Pressable>
+              )}
+              
               <Pressable onPress={() => setDate(todayISO())} style={styles.todayBtn}>
                 <Text style={{ color: theme.color.brandPrimary, fontWeight: "700" }}>Today</Text>
               </Pressable>
             </View>
 
-            {showDatePicker && (
+            {showDatePicker && Platform.OS !== "web" && (
               <View style={Platform.OS === "ios" ? styles.iosPickerContainer : null}>
                 <DateTimePicker
                   value={currentPickerDate}
@@ -591,7 +613,6 @@ function SummaryCard({ label, fund, spent, balance, color, icon }: { label: stri
   );
 }
 
-// Fixed missing type safety check for unused Image import cleanups
 function SourcePill({ source }: { source: Source }) {
   const color = source === "personal" ? theme.color.brandPrimary : source === "business" ? theme.color.success : theme.color.warning;
   return (
