@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { expensesApi, Expense, ExpenseOverview, ExpenseItem, formatDisplayDate } from "@/src/api/client";
 import { DateRangeModal } from "./sales";
 import { theme, formatINRPlain } from "@/src/theme";
@@ -259,6 +260,7 @@ function ExpenseFormBatchModal({
   const isEditing = !!targetExpense;
   const [parentName, setParentName] = useState("");
   const [date, setDate] = useState(todayISO());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   
   // Array management for dynamic children components
   const [childItems, setChildItems] = useState<ExpenseItem[]>([]);
@@ -332,6 +334,23 @@ function ExpenseFormBatchModal({
     setChildItems(childItems.filter((_, i) => i !== index));
   };
 
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === "android") {
+      setShowDatePicker(false);
+    }
+    if (selectedDate) {
+      const yyyy = selectedDate.getFullYear();
+      const mm = String(selectedDate.getMonth() + 1).padStart(2, "0");
+      const dd = String(selectedDate.getDate()).padStart(2, "0");
+      setDate(`${yyyy}-${mm}-${dd}`);
+    }
+  };
+
+  const currentPickerDate = useMemo(() => {
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? new Date() : d;
+  }, [date]);
+
   const onCommitSave = async () => {
     if (!parentName.trim()) {
       setErr("Parent label identifier required.");
@@ -398,9 +417,38 @@ function ExpenseFormBatchModal({
 
             <Text style={styles.label}>Log Event Date</Text>
             <View style={styles.dateRow}>
-              <TextInput value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor={theme.color.onSurfaceTertiary} style={[styles.input, { flex: 1, textAlign: "center" }]} />
-              <Pressable onPress={() => setDate(todayISO())} style={styles.todayBtn}><Text style={{ color: theme.color.brandPrimary, fontWeight: "700" }}>Today</Text></Pressable>
+              <Pressable 
+                onPress={() => setShowDatePicker(true)} 
+                style={[styles.input, { flex: 1, justifyContent: "center", minHeight: 48 }]}
+              >
+                <Text style={{ color: theme.color.onSurface, fontSize: 15 }}>
+                  {formatDisplayDate(date) || "Select a date..."}
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => setDate(todayISO())} style={styles.todayBtn}>
+                <Text style={{ color: theme.color.brandPrimary, fontWeight: "700" }}>Today</Text>
+              </Pressable>
             </View>
+
+            {showDatePicker && (
+              <View style={Platform.OS === "ios" ? styles.iosPickerContainer : null}>
+                <DateTimePicker
+                  value={currentPickerDate}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "inline" : "default"}
+                  onChange={onDateChange}
+                  maximumDate={new Date()}
+                />
+                {Platform.OS === "ios" && (
+                  <Pressable 
+                    style={styles.iosConfirmBtn}
+                    onPress={() => setShowDatePicker(false)}
+                  >
+                    <Text style={styles.iosConfirmBtnText}>Confirm Date Selection</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
 
             {/* Added Items Preview Stack Section */}
             <Text style={[styles.label, { marginTop: 20 }]}>Staged Structural Elements ({childItems.length})</Text>
@@ -868,10 +916,9 @@ const styles = StyleSheet.create({
   dateAdjustText: { color: theme.color.onSurfaceSecondary, fontWeight: "700", fontSize: 13 },
   todayBtn: {
     flexDirection: "row",
-    alignSelf: "flex-start",
+    alignSelf: "center",
     gap: 4,
-    marginTop: 6,
-    paddingHorizontal: 10, paddingVertical: 6,
+    paddingHorizontal: 12, paddingVertical: 10,
     borderRadius: theme.radius.pill,
     borderWidth: 1, borderColor: theme.color.brandPrimary,
   },
@@ -1055,4 +1102,26 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
   },
   detailDelText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+
+  /* iOS specific calendar structures */
+  iosPickerContainer: {
+    backgroundColor: theme.color.surfaceSecondary,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    marginTop: theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+  },
+  iosConfirmBtn: {
+    backgroundColor: theme.color.surfaceTertiary,
+    padding: 12,
+    borderRadius: 6,
+    marginTop: theme.spacing.md,
+  },
+  iosConfirmBtnText: {
+    textAlign: "center",
+    fontWeight: "700",
+    color: theme.color.onSurface,
+    fontSize: 14,
+  },
 });
