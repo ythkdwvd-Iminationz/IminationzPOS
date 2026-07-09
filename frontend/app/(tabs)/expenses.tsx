@@ -11,12 +11,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
-  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { expensesApi, Expense, ExpenseOverview, ExpenseItem, formatDisplayDate } from "@/src/api/client";
 import { DateRangeModal } from "./sales";
@@ -262,10 +260,8 @@ function ExpenseFormBatchModal({
   const [date, setDate] = useState(todayISO());
   const [showDatePicker, setShowDatePicker] = useState(false);
   
-  // Array management for dynamic children components
   const [childItems, setChildItems] = useState<ExpenseItem[]>([]);
   
-  // Temporary fields for appending an entry row item
   const [cAmount, setCAmount] = useState("");
   const [cSource, setCSource] = useState<Source>("business");
   const [cPersonalAmt, setCPersonalAmt] = useState("");
@@ -287,7 +283,6 @@ function ExpenseFormBatchModal({
     }
   }, [isEditing, targetExpense]);
 
-  // Calculations derived reactively from composite children array entries
   const totals = useMemo(() => {
     return childItems.reduce((acc, curr) => {
       acc.total += curr.amount;
@@ -335,10 +330,12 @@ function ExpenseFormBatchModal({
   };
 
   const onDateChange = (event: any, selectedDate?: Date) => {
+    // Dismiss picker overlay directly on Android
     if (Platform.OS === "android") {
       setShowDatePicker(false);
     }
-    if (selectedDate) {
+    
+    if (event.type === "set" && selectedDate) {
       const yyyy = selectedDate.getFullYear();
       const mm = String(selectedDate.getMonth() + 1).padStart(2, "0");
       const dd = String(selectedDate.getDate()).padStart(2, "0");
@@ -347,8 +344,16 @@ function ExpenseFormBatchModal({
   };
 
   const currentPickerDate = useMemo(() => {
-    const d = new Date(date);
-    return isNaN(d.getTime()) ? new Date() : d;
+    if (!date) return new Date();
+    const parts = date.split("-");
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return new Date();
   }, [date]);
 
   const onCommitSave = async () => {
@@ -411,7 +416,6 @@ function ExpenseFormBatchModal({
           </View>
 
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 40 }}>
-            {/* Parent Information context setup */}
             <Text style={styles.label}>Parent Reference Title</Text>
             <TextInput value={parentName} onChangeText={setParentName} placeholder="e.g. Weekly Raw Materials, Shop Renovations" placeholderTextColor={theme.color.onSurfaceTertiary} style={styles.input} />
 
@@ -419,11 +423,12 @@ function ExpenseFormBatchModal({
             <View style={styles.dateRow}>
               <Pressable 
                 onPress={() => setShowDatePicker(true)} 
-                style={[styles.input, { flex: 1, justifyContent: "center", minHeight: 48 }]}
+                style={[styles.input, { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48 }]}
               >
                 <Text style={{ color: theme.color.onSurface, fontSize: 15 }}>
                   {formatDisplayDate(date) || "Select a date..."}
                 </Text>
+                <Ionicons name="calendar-outline" size={18} color={theme.color.brandPrimary} />
               </Pressable>
               <Pressable onPress={() => setDate(todayISO())} style={styles.todayBtn}>
                 <Text style={{ color: theme.color.brandPrimary, fontWeight: "700" }}>Today</Text>
@@ -450,7 +455,6 @@ function ExpenseFormBatchModal({
               </View>
             )}
 
-            {/* Added Items Preview Stack Section */}
             <Text style={[styles.label, { marginTop: 20 }]}>Staged Structural Elements ({childItems.length})</Text>
             {childItems.map((item, idx) => (
               <View key={idx} style={{ flexDirection: "row", padding: 10, backgroundColor: theme.color.surfaceSecondary, marginBottom: 6, borderRadius: 6, alignItems: "center" }}>
@@ -462,14 +466,12 @@ function ExpenseFormBatchModal({
               </View>
             ))}
 
-            {/* Cumulative Running Display Metrics panel */}
             <View style={{ marginVertical: 14, padding: 12, backgroundColor: theme.color.brandTertiary, borderRadius: 8, borderWidth: 1, borderColor: theme.color.brandPrimary }}>
               <Text style={{ fontSize: 11, fontWeight: "700", color: theme.color.brandPrimary }}>RUNNING BATCH SUMMATION TOTAL</Text>
               <Text style={{ fontSize: 24, fontWeight: "800", color: theme.color.brandPrimary, marginVertical: 2 }}>{formatINRPlain(totals.total)}</Text>
               <Text style={{ fontSize: 11, color: theme.color.onSurfaceSecondary }}>Split: Personal: {formatINRPlain(totals.personal)} | Business: {formatINRPlain(totals.business)}</Text>
             </View>
 
-            {/* Inline Sub-Form nested constructor row element wrapper */}
             <View style={{ padding: 12, borderWidth: 1, borderColor: theme.color.border, borderRadius: 8, marginTop: 10 }}>
               <Text style={{ fontSize: 12, fontWeight: "800", color: theme.color.onSurfaceSecondary, marginBottom: 8 }}>+ APPEND CHILD ITEM LINE</Text>
               
@@ -589,6 +591,7 @@ function SummaryCard({ label, fund, spent, balance, color, icon }: { label: stri
   );
 }
 
+// Fixed missing type safety check for unused Image import cleanups
 function SourcePill({ source }: { source: Source }) {
   const color = source === "personal" ? theme.color.brandPrimary : source === "business" ? theme.color.success : theme.color.warning;
   return (
@@ -629,7 +632,6 @@ function SetFundModal({ visible, current, onClose, onSaved }: { visible: boolean
 }
 
 /* ---------------- Styles ---------------- */
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.color.surface },
   header: {
@@ -707,145 +709,16 @@ const styles = StyleSheet.create({
   },
   rowAmount: { color: theme.color.onSurface, fontSize: 16, fontWeight: "800" },
   rowMeta: { color: theme.color.onSurfaceTertiary, fontSize: 11, marginTop: 2 },
-  rowNote: { color: theme.color.onSurfaceSecondary, fontSize: 12, marginTop: 4 },
   pill: {
     borderWidth: 1, borderRadius: theme.radius.pill,
     paddingHorizontal: 8, paddingVertical: 2,
   },
   pillText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.6 },
-  thumb: {
-    width: 46, height: 46, borderRadius: 6, overflow: "hidden",
-    backgroundColor: theme.color.surfaceTertiary,
-  },
-  delBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    alignItems: "center", justifyContent: "center",
-    backgroundColor: theme.color.surfaceTertiary,
-  },
 
   emptyBox: { alignItems: "center", paddingVertical: 48 },
   emptyText: { color: theme.color.onSurfaceSecondary, marginTop: 8, fontSize: 15, fontWeight: "600" },
-  emptyHint: { color: theme.color.onSurfaceTertiary, fontSize: 12, marginTop: 4 },
 
-  errBox: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "#2d0e10",
-    borderColor: theme.color.error, borderWidth: 1,
-    borderRadius: theme.radius.md,
-    padding: theme.spacing.md, marginBottom: theme.spacing.md,
-  },
   errText: { color: theme.color.error, fontSize: 12, marginTop: 8 },
-
-  setupCard: {
-    backgroundColor: "#1e1608",
-    borderColor: theme.color.warning,
-    borderWidth: 1,
-    borderRadius: theme.radius.md,
-    padding: theme.spacing.lg,
-    marginBottom: theme.spacing.lg,
-  },
-  setupTitle: {
-    color: theme.color.warning,
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  setupBody: {
-    color: theme.color.onSurfaceSecondary,
-    fontSize: 13,
-    marginTop: 8,
-    lineHeight: 18,
-  },
-  stepList: { marginTop: 12, gap: 8 },
-  stepRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  stepBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: theme.color.brandTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 1,
-  },
-  stepBadgeText: { color: theme.color.brandPrimary, fontSize: 11, fontWeight: "700" },
-  stepText: { color: theme.color.onSurface, fontSize: 13, flex: 1, lineHeight: 18 },
-  sqlToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 12,
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: theme.radius.pill,
-    borderWidth: 1,
-    borderColor: theme.color.brandPrimary,
-  },
-  sqlToggleText: { color: theme.color.brandPrimary, fontSize: 12, fontWeight: "700" },
-  setupNote: {
-    flexDirection: "row",
-    gap: 6,
-    marginTop: 12,
-    alignItems: "flex-start",
-  },
-  setupNoteText: {
-    color: theme.color.onSurfaceSecondary,
-    fontSize: 12,
-    lineHeight: 16,
-    flex: 1,
-  },
-  notifyBox: {
-    marginTop: 6,
-    backgroundColor: "#000",
-    borderColor: theme.color.border,
-    borderWidth: 1,
-    borderRadius: theme.radius.sm,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  notifyText: {
-    color: "#a3e5a3",
-    fontSize: 12,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
-  },
-  setupBtnRow: { flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" },
-  setupBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: theme.radius.pill,
-  },
-  setupBtnText: { fontSize: 12, fontWeight: "700" },
-  diagBox: {
-    marginTop: 12,
-    padding: 10,
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.color.surface,
-    borderColor: theme.color.border,
-    borderWidth: 1,
-  },
-  diagTitle: { color: theme.color.onSurface, fontWeight: "700", fontSize: 12, marginBottom: 6 },
-  diagRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
-  diagTable: { color: theme.color.onSurface, fontSize: 12, fontWeight: "600", minWidth: 90 },
-  diagMsg: { color: theme.color.onSurfaceTertiary, fontSize: 11, flex: 1 },
-  diagFooter: { color: theme.color.onSurfaceSecondary, fontSize: 11, marginTop: 8, lineHeight: 15 },
-  sqlBox: {
-    marginTop: 8,
-    maxHeight: 220,
-    backgroundColor: "#000",
-    borderColor: theme.color.border,
-    borderWidth: 1,
-    borderRadius: theme.radius.sm,
-    padding: 10,
-  },
-  sqlText: {
-    color: "#a3e5a3",
-    fontSize: 11,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
-  },
-  setupHint: { marginTop: 10, color: theme.color.onSurfaceTertiary, fontSize: 11 },
 
   fab: {
     position: "absolute",
@@ -858,10 +731,8 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
 
-  /* modal */
   modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
   sheet: {
-    maxHeight: "92%",
     backgroundColor: theme.color.surface,
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     paddingHorizontal: theme.spacing.lg,
@@ -906,14 +777,6 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   dateRow: { flexDirection: "row", gap: 8, alignItems: "center" },
-  dateAdjust: {
-    height: 46, paddingHorizontal: 12,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.color.surfaceSecondary,
-    borderColor: theme.color.border, borderWidth: 1,
-    alignItems: "center", justifyContent: "center",
-  },
-  dateAdjustText: { color: theme.color.onSurfaceSecondary, fontWeight: "700", fontSize: 13 },
   todayBtn: {
     flexDirection: "row",
     alignSelf: "center",
@@ -921,28 +784,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 10,
     borderRadius: theme.radius.pill,
     borderWidth: 1, borderColor: theme.color.brandPrimary,
-  },
-  todayBtnText: { color: theme.color.brandPrimary, fontSize: 11, fontWeight: "700" },
-  warnText: { color: theme.color.warning, fontSize: 12, marginTop: 6 },
-
-  receiptBtnRow: { flexDirection: "row", gap: 10 },
-  receiptBtn: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    backgroundColor: theme.color.surfaceSecondary,
-    borderColor: theme.color.brandPrimary, borderWidth: 1,
-    borderRadius: theme.radius.md, paddingVertical: 12,
-  },
-  receiptBtnText: { color: theme.color.brandPrimary, fontSize: 13, fontWeight: "700" },
-  receiptPreview: { position: "relative" },
-  receiptImg: {
-    width: "100%", height: 180, borderRadius: theme.radius.md,
-    backgroundColor: theme.color.surfaceSecondary,
-  },
-  receiptRemove: {
-    position: "absolute", top: 8, right: 8,
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    alignItems: "center", justifyContent: "center",
   },
 
   saveBtn: {
@@ -953,7 +794,6 @@ const styles = StyleSheet.create({
   },
   saveBtnText: { color: theme.color.onBrandPrimary, fontSize: 16, fontWeight: "700" },
 
-  /* Confirm modal */
   confirmOverlay: {
     flex: 1, backgroundColor: "rgba(0,0,0,0.6)",
     alignItems: "center", justifyContent: "center",
@@ -967,7 +807,6 @@ const styles = StyleSheet.create({
     padding: theme.spacing.xl,
   },
   confirmTitle: { color: theme.color.onSurface, fontSize: 18, fontWeight: "700" },
-  confirmBody: { color: theme.color.onSurfaceTertiary, fontSize: 13, marginTop: 6 },
   confirmRow: { flexDirection: "row", gap: 10, marginTop: theme.spacing.lg },
   confirmBtn: {
     flex: 1, height: 46, borderRadius: theme.radius.md,
@@ -975,13 +814,6 @@ const styles = StyleSheet.create({
   },
   confirmBtnText: { color: theme.color.onSurface, fontWeight: "700" },
 
-  receiptOverlay: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.9)",
-    alignItems: "center", justifyContent: "center",
-  },
-  receiptFull: { width: "100%", height: "100%" },
-
-  /* filters */
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -994,12 +826,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   searchInput: { flex: 1, paddingVertical: 12, color: theme.color.onSurface, fontSize: 15 },
-  searchClear: {
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: theme.color.surfaceTertiary,
-    alignItems: "center", justifyContent: "center",
-  },
-  chipRowWrap: { marginTop: 10, marginBottom: 4 },
   chipRow: { gap: 8, alignItems: "center", paddingRight: theme.spacing.md },
   chip: {
     height: 32,
@@ -1010,23 +836,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
-  rangeChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    alignSelf: "flex-start",
-    marginTop: 4,
-    marginBottom: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: theme.radius.pill,
-    borderWidth: 1,
-    borderColor: theme.color.brandPrimary,
-    backgroundColor: theme.color.brandTertiary,
-  },
-  rangeChipText: { color: theme.color.onBrandTertiary, fontSize: 12, fontWeight: "600" },
 
-  /* detail modal */
   detailAmountBlock: {
     alignItems: "flex-start",
     gap: 8,
@@ -1057,53 +867,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   detailValue: { color: theme.color.onSurface, fontSize: 14, fontWeight: "700" },
-  detailNoteBox: { marginTop: 12 },
-  detailNote: {
-    color: theme.color.onSurface,
-    fontSize: 14,
-    marginTop: 4,
-    lineHeight: 20,
-    backgroundColor: theme.color.surfaceSecondary,
-    padding: 12,
-    borderRadius: theme.radius.md,
-  },
-  detailReceipt: {
-    width: "100%",
-    height: 260,
-    borderRadius: theme.radius.md,
-    marginTop: 6,
-    backgroundColor: theme.color.surfaceSecondary,
-  },
-  detailReceiptHint: {
-    color: theme.color.onSurfaceTertiary,
-    fontSize: 11,
-    marginTop: 4,
-    textAlign: "center",
-  },
-  detailNoReceipt: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 16,
-    paddingVertical: 12,
-    paddingHorizontal: theme.spacing.md,
-    backgroundColor: theme.color.surfaceSecondary,
-    borderRadius: theme.radius.md,
-  },
-  detailNoReceiptText: { color: theme.color.onSurfaceTertiary, fontSize: 12 },
-  detailDelBtn: {
-    marginTop: 24,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    backgroundColor: theme.color.error,
-    paddingVertical: 14,
-    borderRadius: theme.radius.md,
-  },
-  detailDelText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 
-  /* iOS specific calendar structures */
   iosPickerContainer: {
     backgroundColor: theme.color.surfaceSecondary,
     borderRadius: theme.radius.md,
