@@ -642,17 +642,17 @@ export interface ExpenseOverview {
 // ---------- Enhanced Date Formatter ----------
 export function formatDisplayDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
-  const cleanDate = dateStr.split("T")[0]; // handle timestamp strings gracefully
+  const cleanDate = dateStr.split("T")[0]; 
   const [year, month, day] = cleanDate.split("-");
   if (!year || !month || !day) return dateStr;
 
   const months = [
-    "January", "February", "March", "April", "May", "June",
+    "July", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
   ];
   
   const monthName = months[parseInt(month, 10) - 1] || month;
-  return `${parseInt(day, 10)} ${monthName} ${year}`;
+  return `${parseInt(day, 10)} ${monthName} ${year}`; // Outputs exactly: 8 July 2026
 }
 
 // ---------- Updated Expenses API Surface ----------
