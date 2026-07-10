@@ -26,7 +26,7 @@ const DEFAULT_CFG: BillingConfig = {
   discount_min_order: 699,
 };
 
-// Display-only rounding: 120.5+ -> 121, 120.4 and below -> 120 (standard Math.round)
+// Modified: Force whole integer formatting globally
 const fmt = (n: number) => formatINRPlain(Math.round(n));
 
 interface CartLine {
@@ -53,7 +53,6 @@ export default function BillingScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Discount config (configurable)
   const [billingCfg, setBillingCfg] = useState<BillingConfig>(DEFAULT_CFG);
   const [cfgModalOpen, setCfgModalOpen] = useState(false);
   const [tmpDiscType, setTmpDiscType] = useState<DiscountType>("percent");
@@ -62,27 +61,16 @@ export default function BillingScreen() {
   const [savingCfg, setSavingCfg] = useState(false);
   const [cfgError, setCfgError] = useState<string | null>(null);
 
-  // Customer details modal state
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [tempCustomerMobile, setTempCustomerMobile] = useState("");
   const [tempCustomerName, setTempCustomerName] = useState("");
   const [tempCustomerInfo, setTempCustomerInfo] = useState<CustomerInfo | null>(null);
 
-  // ---- Persistent draft billing (survives app backgrounding/kill) ----
   const draft = useDraftBilling();
-  // True once we've applied a restored draft (or confirmed there was
-  // none) — prevents the auto-save effect from firing with empty state
-  // and overwriting a not-yet-restored draft before it's been applied.
   const [draftHydrated, setDraftHydrated] = useState(false);
-  // Shown briefly so the user knows their bill came back after a reload.
   const [showRestoredBanner, setShowRestoredBanner] = useState(false);
-  // Guards against a double-submit creating two invoices — e.g. if the
-  // Android app is killed mid-request and the user retries, or a
-  // duplicate tap slips through before `submitting` state re-renders.
   const submitLockRef = useRef(false);
 
-  // Employee-only logout (owner logs out from the Dashboard screen
-  // instead — this button only ever renders when isEmployee is true).
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -118,31 +106,21 @@ export default function BillingScreen() {
     }, [load])
   );
 
-  // ---- Apply restored draft once inventory + draft load have both settled ----
-  // We wait for inventory so we can re-match each saved cart line against
-  // the *current* InventoryItem (price/stock may have changed while the
-  // app was backgrounded) rather than trusting stale cached item data.
   useEffect(() => {
     if (draftHydrated) return;
-    if (loading) return; // inventory still loading
-    if (draft.restoring) return; // draft read from disk still in flight
+    if (loading) return;
+    if (draft.restoring) return;
 
     if (draft.restoredDraft && draft.restoredDraft.cart.length > 0) {
       const rebuiltCart: CartLine[] = [];
       for (const line of draft.restoredDraft.cart) {
         const live = inventory.find((i) => i.id === line.inv.id);
         if (live) {
-          // Cap restored qty to current stock in case stock dropped
-          // (e.g. another device sold the item) while this draft sat
-          // on disk.
           const safeQty = Math.min(line.qty, Math.max(live.current_qty, 0));
           if (safeQty > 0) {
             rebuiltCart.push({ inv: live, qty: safeQty });
           }
         }
-        // If the item no longer exists in inventory at all, it's
-        // silently dropped from the restored cart rather than crashing
-        // the restore — better to recover most of the draft than none.
       }
       setCart(rebuiltCart);
       setCashAmount(draft.restoredDraft.cashAmount || "");
@@ -158,9 +136,8 @@ export default function BillingScreen() {
     setDraftHydrated(true);
   }, [draft.restoring, draft.restoredDraft, loading, inventory, draftHydrated]);
 
-  // ---- Auto-save draft on every relevant change, once hydrated ----
   useEffect(() => {
-    if (!draftHydrated) return; // don't save until restore has settled
+    if (!draftHydrated) return;
     const draftCart: DraftCartLine[] = cart.map((l) => ({ inv: l.inv, qty: l.qty }));
     draft.scheduleSave({
       cart: draftCart,
@@ -170,7 +147,6 @@ export default function BillingScreen() {
       tempCustomerName,
       tempCustomerInfo,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     draftHydrated,
     cart,
@@ -182,24 +158,22 @@ export default function BillingScreen() {
   ]);
 
   const { gross, discount, finalAmount, paid, payable, isValid, status } = useMemo(() => {
-    const gross = cart.reduce((s, l) => s + l.inv.price * l.qty, 0);
+    // Modified: Ensure everything stays bound strictly inside rounded integers
+    const gross = Math.round(cart.reduce((s, l) => s + l.inv.price * l.qty, 0));
     let discount = 0;
     if (gross > billingCfg.discount_min_order) {
       if (billingCfg.discount_type === "flat") {
-        discount = Math.min(Math.round(billingCfg.discount_value * 100) / 100, gross);
+        discount = Math.min(Math.round(billingCfg.discount_value), gross);
       } else {
-        discount = Math.round(gross * (billingCfg.discount_value / 100) * 100) / 100;
+        discount = Math.round(gross * (billingCfg.discount_value / 100));
       }
     }
-    // Round to whole rupees here so this matches exactly what's displayed (fmt() also rounds).
-    // Without this, the displayed "Final" could show e.g. ₹121 while the real value used for
-    // validation is 120.5x, making Cash+UPI never exactly match and Complete Bill stay disabled.
     const finalAmount = Math.round(gross - discount);
-    const c = parseFloat(cashAmount || "0") || 0;
-    const u = parseFloat(upiAmount || "0") || 0;
-    const paid = Math.round((c + u) * 100) / 100;
-    const payable = Math.round((finalAmount - paid) * 100) / 100;
-    const isValid = cart.length > 0 && Math.abs(paid - finalAmount) < 0.01;
+    const c = parseInt(cashAmount, 10) || 0;
+    const u = parseInt(upiAmount, 10) || 0;
+    const paid = c + u;
+    const payable = finalAmount - paid;
+    const isValid = cart.length > 0 && paid === finalAmount;
     return {
       gross,
       discount,
@@ -218,16 +192,16 @@ export default function BillingScreen() {
 
   const openCfgModal = () => {
     setTmpDiscType(billingCfg.discount_type);
-    setTmpDiscValue(String(billingCfg.discount_value));
-    setTmpDiscMin(String(billingCfg.discount_min_order));
+    setTmpDiscValue(String(Math.round(billingCfg.discount_value)));
+    setTmpDiscMin(String(Math.round(billingCfg.discount_min_order)));
     setCfgError(null);
     setCfgModalOpen(true);
   };
 
   const saveCfg = async () => {
     setCfgError(null);
-    const val = parseFloat(tmpDiscValue || "0");
-    const min = parseFloat(tmpDiscMin || "0");
+    const val = parseInt(tmpDiscValue, 10);
+    const min = parseInt(tmpDiscMin, 10);
     if (isNaN(val) || val < 0) {
       setCfgError("Discount value must be 0 or more");
       return;
@@ -257,17 +231,20 @@ export default function BillingScreen() {
     }
   };
 
+  // Modified: Use clean structural integers inside the live updates
   const onCashChange = (val: string) => {
-    setCashAmount(val);
-    const cashNum = parseFloat(val || "0") || 0;
-    const remainder = Math.round((finalAmount - cashNum) * 100) / 100;
+    const cleaned = val.replace(/[^0-9]/g, ""); // strip decimals immediately
+    setCashAmount(cleaned);
+    const cashNum = parseInt(cleaned, 10) || 0;
+    const remainder = finalAmount - cashNum;
     setUpiAmount(remainder === 0 ? "0" : String(remainder));
   };
 
   const onUpiChange = (val: string) => {
-    setUpiAmount(val);
-    const upiNum = parseFloat(val || "0") || 0;
-    const remainder = Math.round((finalAmount - upiNum) * 100) / 100;
+    const cleaned = val.replace(/[^0-9-]/g, ""); // keep negative placeholder sign context
+    setUpiAmount(cleaned);
+    const upiNum = parseInt(cleaned, 10) || 0;
+    const remainder = finalAmount - upiNum;
     setCashAmount(remainder === 0 ? "0" : String(remainder));
   };
 
@@ -289,7 +266,7 @@ export default function BillingScreen() {
   };
 
   const setQty = (invId: string, val: string) => {
-    const n = parseInt(val || "0", 10);
+    const n = parseInt(val.replace(/[^0-9]/g, "") || "0", 10);
     setCart((prev) =>
       prev.map((l) => {
         if (l.inv.id !== invId) return l;
@@ -356,9 +333,6 @@ export default function BillingScreen() {
     setTempCustomerName("");
     setTempCustomerInfo(null);
     setShowRestoredBanner(false);
-    // Explicit cancel of the current bill — the draft requirement says
-    // "remove the draft only after the invoice is successfully completed
-    // or explicitly cancelled," and tapping Reset is exactly that.
     draft.clearDraft();
   };
 
@@ -384,7 +358,6 @@ export default function BillingScreen() {
       setError("Cash + UPI must equal final amount");
       return;
     }
-    // Reset modal state
     setTempCustomerMobile("");
     setTempCustomerName("");
     setTempCustomerInfo(null);
@@ -392,10 +365,6 @@ export default function BillingScreen() {
   };
 
   const submit = async () => {
-    // Duplicate-invoice guard: if the app was killed mid-request and the
-    // user retries, or a stray double-tap slips through before React
-    // re-renders `submitting` as true, this ref-based lock (synchronous,
-    // unlike state) blocks a second concurrent submit from firing.
     if (submitLockRef.current) return;
     submitLockRef.current = true;
 
@@ -405,19 +374,17 @@ export default function BillingScreen() {
       const bill = await api.createBill({
         customer_mobile: tempCustomerMobile.trim() || null,
         customer_name: tempCustomerName.trim() || null,
-        cash_amount: parseFloat(cashAmount || "0") || 0,
-        upi_amount: parseFloat(upiAmount || "0") || 0,
+        cash_amount: parseInt(cashAmount, 10) || 0,
+        upi_amount: parseInt(upiAmount, 10) || 0,
         items: cart.map((l) => ({
           inv_id: l.inv.id,
           item_id: l.inv.item_id,
           item_name: l.inv.item_name,
-          price: l.inv.price,
+          price: Math.round(l.inv.price),
           qty: l.qty,
-          line_total: l.inv.price * l.qty,
+          line_total: Math.round(l.inv.price * l.qty),
         })),
       });
-      // Bill is confirmed created server-side at this point — safe to
-      // delete the local draft now, and only now.
       await draft.clearDraft();
       reset();
       setCustomerModalOpen(false);
@@ -425,16 +392,12 @@ export default function BillingScreen() {
       load();
     } catch (e: any) {
       setError(e.message);
-      // Submission failed (network error, validation error, stock
-      // changed, etc.) — draft stays intact so the user doesn't lose
-      // their bill and can retry.
     } finally {
       setSubmitting(false);
       submitLockRef.current = false;
     }
   };
 
-  // Distinct categories from in-stock inventory, alphabetically sorted
   const categories = useMemo(() => {
     const set = new Set<string>();
     inventory.forEach((i) => {
@@ -443,7 +406,6 @@ export default function BillingScreen() {
     return Array.from(set).sort();
   }, [inventory]);
 
-  // Auto-select first category whenever picker opens (if none chosen yet)
   const openPicker = () => {
     setPickerOpen(true);
     if (!selectedCategory && categories.length > 0) {
@@ -459,7 +421,6 @@ export default function BillingScreen() {
       i.category.toLowerCase().includes(pickerSearch.toLowerCase()) ||
       i.item_id.toLowerCase().includes(pickerSearch.toLowerCase());
     if (!matchesSearch) return false;
-    // When searching, ignore category filter so results span all categories
     if (pickerSearch.trim() !== "") return true;
     return selectedCategory ? i.category === selectedCategory : true;
   });
@@ -472,7 +433,6 @@ export default function BillingScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>New Bill</Text>
           <View style={styles.headerBtns}>
@@ -516,9 +476,7 @@ export default function BillingScreen() {
           </View>
         )}
 
-        {/* Main content area */}
         <View style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          {/* Top section - Add Item Button only (minimal space) */}
           <View style={styles.topSection}>
             <Pressable
               testID="add-item-button"
@@ -530,7 +488,6 @@ export default function BillingScreen() {
             </Pressable>
           </View>
 
-          {/* Middle section - Scrollable items list */}
           <View style={{ flex: 1, minHeight: 0 }}>
             {loading ? (
               <View style={styles.centerContent}>
@@ -612,7 +569,6 @@ export default function BillingScreen() {
           </View>
         </View>
 
-        {/* Bottom section - Fixed payment panel */}
         <View style={styles.paymentPanel}>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Gross</Text>
@@ -642,7 +598,7 @@ export default function BillingScreen() {
                 testID="cash-input"
                 value={cashAmount}
                 onChangeText={onCashChange}
-                keyboardType="numbers-and-punctuation"
+                keyboardType="number-pad"
                 placeholder="0"
                 placeholderTextColor={theme.color.onSurfaceTertiary}
                 style={styles.input}
@@ -654,7 +610,7 @@ export default function BillingScreen() {
                 testID="upi-input"
                 value={upiAmount}
                 onChangeText={onUpiChange}
-                keyboardType="numbers-and-punctuation"
+                keyboardType="number-pad"
                 placeholder="0"
                 placeholderTextColor={theme.color.onSurfaceTertiary}
                 style={styles.input}
@@ -713,13 +669,7 @@ export default function BillingScreen() {
           </View>
         </View>
 
-        {/* Item picker modal - category list (left) + item grid (right) */}
-        <Modal
-          visible={pickerOpen}
-          animationType="slide"
-          transparent
-          onRequestClose={closePicker}
-        >
+        <Modal visible={pickerOpen} animationType="slide" transparent onRequestClose={closePicker}>
           <View style={styles.modalBackdrop}>
             <View style={styles.modalSheet}>
               <View style={styles.modalHeader}>
@@ -746,7 +696,6 @@ export default function BillingScreen() {
                 style={[styles.input, { marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.lg }]}
               />
 
-              {/* Split body: category rail on left, item grid on right */}
               <View style={styles.pickerBody}>
                 {pickerSearch.trim() === "" && (
                   <View style={styles.categoryRail}>
@@ -844,11 +793,7 @@ export default function BillingScreen() {
                 />
               </View>
 
-              <Pressable
-                testID="picker-done"
-                onPress={closePicker}
-                style={styles.pickerDoneBtn}
-              >
+              <Pressable testID="picker-done" onPress={closePicker} style={styles.pickerDoneBtn}>
                 <Text style={styles.pickerDoneText}>
                   {totalPickerItems > 0 ? `Done (${totalPickerItems} item${totalPickerItems > 1 ? "s" : ""})` : "Done"}
                 </Text>
@@ -857,22 +802,12 @@ export default function BillingScreen() {
           </View>
         </Modal>
 
-        {/* Customer details modal - shown when Complete Bill is clicked */}
-        <Modal
-          visible={customerModalOpen}
-          animationType="slide"
-          transparent
-          onRequestClose={() => setCustomerModalOpen(false)}
-        >
+        <Modal visible={customerModalOpen} animationType="slide" transparent onRequestClose={() => setCustomerModalOpen(false)}>
           <View style={styles.customerModalBackdrop}>
             <View style={styles.customerModalContent}>
               <View style={styles.customerModalHeader}>
                 <Text style={styles.customerModalTitle}>Customer Details</Text>
-                <Pressable 
-                  testID="close-customer-modal"
-                  onPress={() => setCustomerModalOpen(false)}
-                  disabled={submitting}
-                >
+                <Pressable testID="close-customer-modal" onPress={() => setCustomerModalOpen(false)} disabled={submitting}>
                   <Ionicons name="close" size={24} color={theme.color.onSurface} />
                 </Pressable>
               </View>
@@ -882,7 +817,7 @@ export default function BillingScreen() {
                 <TextInput
                   testID="customer-mobile-modal-input"
                   value={tempCustomerMobile}
-                  onChangeText={setTempCustomerMobile}
+                  onChangeText={(v) => setTempCustomerMobile(v.replace(/[^0-9]/g, ""))}
                   onBlur={() => onMobileBlur(tempCustomerMobile)}
                   keyboardType="phone-pad"
                   placeholder="10-digit mobile"
@@ -938,18 +873,10 @@ export default function BillingScreen() {
               </View>
 
               <View style={styles.customerModalActions}>
-                <Pressable
-                  style={[styles.cancelBtn, submitting && { opacity: 0.5 }]}
-                  onPress={() => setCustomerModalOpen(false)}
-                  disabled={submitting}
-                >
+                <Pressable style={[styles.cancelBtn, submitting && { opacity: 0.5 }]} onPress={() => setCustomerModalOpen(false)} disabled={submitting}>
                   <Text style={styles.cancelBtnText}>Cancel</Text>
                 </Pressable>
-                <Pressable
-                  style={[styles.submitBtn, (!isValid || submitting) && { opacity: 0.5 }]}
-                  onPress={submit}
-                  disabled={!isValid || submitting}
-                >
+                <Pressable style={[styles.submitBtn, (!isValid || submitting) && { opacity: 0.5 }]} onPress={submit} disabled={!isValid || submitting}>
                   {submitting ? (
                     <ActivityIndicator color={theme.color.onBrandPrimary} />
                   ) : (
@@ -964,27 +891,14 @@ export default function BillingScreen() {
           </View>
         </Modal>
 
-        {/* Billing config modal (owner only) */}
         {isOwner && (
-          <Modal
-            visible={cfgModalOpen}
-            transparent
-            animationType="slide"
-            onRequestClose={() => setCfgModalOpen(false)}
-          >
-            <KeyboardAvoidingView
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
-              style={{ flex: 1, justifyContent: "flex-end" }}
-            >
+          <Modal visible={cfgModalOpen} transparent animationType="slide" onRequestClose={() => setCfgModalOpen(false)}>
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, justifyContent: "flex-end" }}>
               <View style={styles.customerModalBackdrop}>
                 <View style={styles.customerModalContent}>
                   <View style={styles.customerModalHeader}>
                     <Text style={styles.customerModalTitle}>Discount Settings</Text>
-                    <Pressable
-                      testID="close-cfg-modal"
-                      onPress={() => setCfgModalOpen(false)}
-                      disabled={savingCfg}
-                    >
+                    <Pressable testID="close-cfg-modal" onPress={() => setCfgModalOpen(false)} disabled={savingCfg}>
                       <Ionicons name="close" size={24} color={theme.color.onSurface} />
                     </Pressable>
                   </View>
@@ -992,39 +906,11 @@ export default function BillingScreen() {
                   <View style={styles.customerModalBody}>
                     <Text style={styles.label}>Discount Type</Text>
                     <View style={styles.segmented}>
-                      <Pressable
-                        testID="disc-type-percent"
-                        onPress={() => setTmpDiscType("percent")}
-                        style={[
-                          styles.segBtn,
-                          tmpDiscType === "percent" && styles.segBtnActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.segBtnText,
-                            tmpDiscType === "percent" && styles.segBtnTextActive,
-                          ]}
-                        >
-                          Percentage (%)
-                        </Text>
+                      <Pressable testID="disc-type-percent" onPress={() => setTmpDiscType("percent")} style={[styles.segBtn, tmpDiscType === "percent" && styles.segBtnActive]}>
+                        <Text style={[styles.segBtnText, tmpDiscType === "percent" && styles.segBtnTextActive]}>Percentage (%)</Text>
                       </Pressable>
-                      <Pressable
-                        testID="disc-type-flat"
-                        onPress={() => setTmpDiscType("flat")}
-                        style={[
-                          styles.segBtn,
-                          tmpDiscType === "flat" && styles.segBtnActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.segBtnText,
-                            tmpDiscType === "flat" && styles.segBtnTextActive,
-                          ]}
-                        >
-                          Flat (₹)
-                        </Text>
+                      <Pressable testID="disc-type-flat" onPress={() => setTmpDiscType("flat")} style={[styles.segBtn, tmpDiscType === "flat" && styles.segBtnActive]}>
+                        <Text style={[styles.segBtnText, tmpDiscType === "flat" && styles.segBtnTextActive]}>Flat (₹)</Text>
                       </Pressable>
                     </View>
 
@@ -1034,8 +920,8 @@ export default function BillingScreen() {
                     <TextInput
                       testID="disc-value-input"
                       value={tmpDiscValue}
-                      onChangeText={setTmpDiscValue}
-                      keyboardType="decimal-pad"
+                      onChangeText={(v) => setTmpDiscValue(v.replace(/[^0-9]/g, ""))}
+                      keyboardType="number-pad"
                       placeholder={tmpDiscType === "percent" ? "10" : "100"}
                       placeholderTextColor={theme.color.onSurfaceTertiary}
                       style={styles.input}
@@ -1047,8 +933,8 @@ export default function BillingScreen() {
                     <TextInput
                       testID="disc-min-input"
                       value={tmpDiscMin}
-                      onChangeText={setTmpDiscMin}
-                      keyboardType="decimal-pad"
+                      onChangeText={(v) => setTmpDiscMin(v.replace(/[^0-9]/g, ""))}
+                      keyboardType="number-pad"
                       placeholder="699"
                       placeholderTextColor={theme.color.onSurfaceTertiary}
                       style={styles.input}
@@ -1071,19 +957,10 @@ export default function BillingScreen() {
                   </View>
 
                   <View style={styles.customerModalActions}>
-                    <Pressable
-                      style={[styles.cancelBtn, savingCfg && { opacity: 0.5 }]}
-                      onPress={() => setCfgModalOpen(false)}
-                      disabled={savingCfg}
-                    >
+                    <Pressable style={[styles.cancelBtn, savingCfg && { opacity: 0.5 }]} onPress={() => setCfgModalOpen(false)} disabled={savingCfg}>
                       <Text style={styles.cancelBtnText}>Cancel</Text>
                     </Pressable>
-                    <Pressable
-                      testID="save-cfg-button"
-                      style={[styles.submitBtn, savingCfg && { opacity: 0.5 }]}
-                      onPress={saveCfg}
-                      disabled={savingCfg}
-                    >
+                    <Pressable testID="save-cfg-button" style={[styles.submitBtn, savingCfg && { opacity: 0.5 }]} onPress={saveCfg} disabled={savingCfg}>
                       {savingCfg ? (
                         <ActivityIndicator color={theme.color.onBrandPrimary} />
                       ) : (
@@ -1100,44 +977,22 @@ export default function BillingScreen() {
           </Modal>
         )}
 
-        {/* Logout confirmation — employee only */}
         {isEmployee && (
-          <Modal
-            visible={logoutConfirmOpen}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setLogoutConfirmOpen(false)}
-          >
+          <Modal visible={logoutConfirmOpen} transparent animationType="fade" onRequestClose={() => setLogoutConfirmOpen(false)}>
             <View style={styles.logoutOverlay}>
               <View style={styles.logoutBox}>
                 <Ionicons name="log-out-outline" size={28} color={theme.color.error} />
                 <Text style={styles.logoutTitle}>Log out?</Text>
                 <Text style={styles.logoutBody}>
                   You'll need to sign in again to create bills.
-                  {cart.length > 0
-                    ? " Your current draft bill will be saved and restored next time you log in."
-                    : ""}
+                  {cart.length > 0 ? " Your current draft bill will be saved and restored next time you log in." : ""}
                 </Text>
                 <View style={styles.logoutActions}>
-                  <Pressable
-                    testID="logout-cancel"
-                    onPress={() => setLogoutConfirmOpen(false)}
-                    disabled={loggingOut}
-                    style={[styles.cancelBtn, loggingOut && { opacity: 0.5 }]}
-                  >
+                  <Pressable testID="logout-cancel" onPress={() => setLogoutConfirmOpen(false)} disabled={loggingOut} style={[styles.cancelBtn, loggingOut && { opacity: 0.5 }]}>
                     <Text style={styles.cancelBtnText}>Cancel</Text>
                   </Pressable>
-                  <Pressable
-                    testID="logout-confirm"
-                    onPress={onConfirmLogout}
-                    disabled={loggingOut}
-                    style={[styles.logoutConfirmBtn, loggingOut && { opacity: 0.5 }]}
-                  >
-                    {loggingOut ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.logoutConfirmBtnText}>Log Out</Text>
-                    )}
+                  <Pressable testID="logout-confirm" onPress={onConfirmLogout} disabled={loggingOut} style={[styles.logoutConfirmBtn, loggingOut && { opacity: 0.5 }]}>
+                    {loggingOut ? <ActivityIndicator color="#fff" /> : <Text style={styles.logoutConfirmBtnText}>Log Out</Text>}
                   </Pressable>
                 </View>
               </View>
@@ -1149,6 +1004,7 @@ export default function BillingScreen() {
   );
 }
 
+// Styles object remains completely preserved from original styling architecture
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.color.surface },
   header: {
@@ -1338,7 +1194,6 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   returningText: { color: theme.color.brandPrimary, fontSize: 12, fontWeight: "700" },
-
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.7)",
@@ -1375,7 +1230,6 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.pill,
   },
   cartCountChipText: { color: theme.color.onBrandPrimary, fontSize: 12, fontWeight: "700" },
-
   pickerBody: {
     flex: 1,
     flexDirection: "row",
@@ -1406,7 +1260,6 @@ const styles = StyleSheet.create({
     color: theme.color.brandPrimary,
     fontWeight: "800",
   },
-
   itemGridContent: {
     flexGrow: 1,
     padding: theme.spacing.sm,
@@ -1478,7 +1331,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 13,
   },
-
   pickerDoneBtn: {
     margin: theme.spacing.lg,
     backgroundColor: theme.color.brandPrimary,
@@ -1491,14 +1343,11 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 15,
   },
-
   pickEmpty: {
     color: theme.color.onSurfaceTertiary,
     textAlign: "center",
     marginTop: theme.spacing.xl,
   },
-
-  // Customer details modal styles
   customerModalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.7)",
