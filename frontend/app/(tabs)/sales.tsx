@@ -31,26 +31,23 @@ const todayISO = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-// Current month: 1st -> today
 const currentMonthRange = () => {
   const d = new Date();
   const y = d.getFullYear();
-  const m = d.getMonth(); // 0-indexed
+  const m = d.getMonth();
   const from = `${y}-${String(m + 1).padStart(2, "0")}-01`;
   const to = todayISO();
   return { from, to };
 };
 
-// Last month: 1st -> last day of previous month
 const lastMonthRange = () => {
   const d = new Date();
   const y = d.getFullYear();
-  const m = d.getMonth(); // 0-indexed, current month
+  const m = d.getMonth();
   const prevMonthDate = new Date(y, m - 1, 1);
   const py = prevMonthDate.getFullYear();
   const pm = prevMonthDate.getMonth();
   const from = `${py}-${String(pm + 1).padStart(2, "0")}-01`;
-  // Last day of previous month = day 0 of current month
   const lastDay = new Date(y, m, 0);
   const to = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, "0")}-${String(lastDay.getDate()).padStart(2, "0")}`;
   return { from, to };
@@ -69,11 +66,9 @@ export default function SalesScreen() {
   const [end, setEnd] = useState<string>(todayISO());
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // ---- Exchange feature (owner only) ----
   const [exchangeBill, setExchangeBill] = useState<Bill | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
 
-  // Owner-only month revenue summary
   const [monthSummary, setMonthSummary] = useState<{
     currentMonthRevenue: number;
     lastMonthRevenue: number;
@@ -103,15 +98,11 @@ export default function SalesScreen() {
 
   const openExchange = useCallback(async (bill: Bill) => {
     setExchangeBill(bill);
-    // Lazily load inventory only when the exchange modal is actually
-    // opened, so owners who never use this feature don't pay the cost
-    // of an extra fetch on every Sales screen visit.
     try {
       const inv = await api.listInventory();
       setInventory(inv);
     } catch {
-      // If this fails, the exchange modal will just show an empty
-      // "new item" list — the picker itself surfaces that state.
+      // ignore
     }
   }, []);
 
@@ -124,12 +115,12 @@ export default function SalesScreen() {
         api.listBills({ filter: "custom", start_date: cur.from, end_date: cur.to }),
         api.listBills({ filter: "custom", start_date: last.from, end_date: last.to }),
       ]);
-      const currentMonthRevenue = curBills.reduce((s, b) => s + Number(b.final_amount), 0);
-      const lastMonthRevenue = lastBills.reduce((s, b) => s + Number(b.final_amount), 0);
+      const currentMonthRevenue = Math.round(curBills.reduce((s, b) => s + Number(b.final_amount), 0));
+      const lastMonthRevenue = Math.round(lastBills.reduce((s, b) => s + Number(b.final_amount), 0));
       setMonthSummary({
         currentMonthRevenue,
         lastMonthRevenue,
-        lastMonthOnePct: lastMonthRevenue * 0.01,
+        lastMonthOnePct: Math.round(lastMonthRevenue * 0.01), // Modified: Force clean integer matching
       });
     } catch {
       setMonthSummary(null);
@@ -140,7 +131,6 @@ export default function SalesScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      // Employees are locked to today.
       const f = isEmployee ? "today" : filter;
       load(f, isEmployee ? "" : search, start, end);
       if (!isEmployee) {
@@ -174,7 +164,6 @@ export default function SalesScreen() {
 
       {!isEmployee && (
         <>
-          {/* Month revenue summary card — owner only */}
           <View style={styles.monthSummaryCard} testID="sales-month-summary">
             <View style={styles.monthSummaryHeader}>
               <Ionicons name="bar-chart" size={15} color={theme.color.brandPrimary} />
@@ -520,7 +509,7 @@ export function DateRangeModal({
           <View style={styles.rangeBtns}>
             <Pressable
               testID="range-cancel"
-              onPress={onCancel}
+              onCancel={onCancel}
               style={[styles.rangeBtn, { backgroundColor: theme.color.surfaceTertiary }]}
             >
               <Text style={styles.rangeBtnText}>Cancel</Text>
@@ -588,29 +577,29 @@ function ExchangeModal({
   if (!bill) return null;
 
   const qtyNum = parseInt(newQty || "0", 10) || 0;
-  const oldLineTotal = oldLine ? oldLine.price * oldLine.qty : 0;
-  const newLineTotal = newItem ? newItem.price * qtyNum : 0;
+  const oldLineTotal = oldLine ? Math.round(oldLine.price * oldLine.qty) : 0;
+  const newLineTotal = newItem ? Math.round(newItem.price * qtyNum) : 0;
   const priceDiff = newLineTotal - oldLineTotal;
 
-  // Auto-fill settlement the same way the billing screen does: typing
-  // one field fills the other with the remainder needed to cover the
-  // difference, but either can still be overtyped freely.
+  // Modified: Use clean structural parseInt mutations on input listeners
   const onCashChange = (val: string) => {
-    setCashAmount(val);
-    const c = parseFloat(val || "0") || 0;
-    const remainder = Math.round((priceDiff - c) * 100) / 100;
+    const cleaned = val.replace(/[^0-9-]/g, ""); // Allow negative markers for balance logic
+    setCashAmount(cleaned);
+    const c = parseInt(cleaned, 10) || 0;
+    const remainder = priceDiff - c;
     setUpiAmount(remainder === 0 ? "0" : String(remainder));
   };
+  
   const onUpiChange = (val: string) => {
-    setUpiAmount(val);
-    const u = parseFloat(val || "0") || 0;
-    const remainder = Math.round((priceDiff - u) * 100) / 100;
+    const cleaned = val.replace(/[^0-9-]/g, "");
+    setUpiAmount(cleaned);
+    const u = parseInt(cleaned, 10) || 0;
+    const remainder = priceDiff - u;
     setCashAmount(remainder === 0 ? "0" : String(remainder));
   };
 
-  const settlement =
-    (parseFloat(cashAmount || "0") || 0) + (parseFloat(upiAmount || "0") || 0);
-  const settlementMatches = Math.abs(settlement - priceDiff) < 0.01;
+  const settlement = (parseInt(cashAmount, 10) || 0) + (parseInt(upiAmount, 10) || 0);
+  const settlementMatches = settlement === priceDiff;
 
   const filteredInventory = inventory.filter((i) => {
     if (i.current_qty <= 0 && i.id !== oldLine?.inv_id) return false;
@@ -643,8 +632,8 @@ function ExchangeModal({
         old_bill_item_id: oldLine.id,
         new_inv_id: newItem.id,
         new_qty: qtyNum,
-        cash_amount: parseFloat(cashAmount || "0") || 0,
-        upi_amount: parseFloat(upiAmount || "0") || 0,
+        cash_amount: parseInt(cashAmount, 10) || 0,
+        upi_amount: parseInt(upiAmount, 10) || 0,
       });
       resetAll();
       onComplete();
@@ -782,7 +771,7 @@ function ExchangeModal({
                 <TextInput
                   testID="exchange-new-qty"
                   value={newQty}
-                  onChangeText={setNewQty}
+                  onChangeText={(v) => setNewQty(v.replace(/[^0-9]/g, ""))}
                   keyboardType="number-pad"
                   style={styles.exchangeSearch}
                 />
@@ -810,7 +799,7 @@ function ExchangeModal({
                       testID="exchange-cash-input"
                       value={cashAmount}
                       onChangeText={onCashChange}
-                      keyboardType="numbers-and-punctuation"
+                      keyboardType="number-pad"
                       placeholder="0"
                       placeholderTextColor={theme.color.onSurfaceTertiary}
                       style={styles.exchangeSearch}
@@ -822,7 +811,7 @@ function ExchangeModal({
                       testID="exchange-upi-input"
                       value={upiAmount}
                       onChangeText={onUpiChange}
-                      keyboardType="numbers-and-punctuation"
+                      keyboardType="number-pad"
                       placeholder="0"
                       placeholderTextColor={theme.color.onSurfaceTertiary}
                       style={styles.exchangeSearch}
@@ -953,8 +942,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
-
-  /* Exchange modal */
   exchangeOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -1107,8 +1094,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 15,
   },
-
-  /* Month revenue summary card */
   monthSummaryCard: {
     marginHorizontal: theme.spacing.lg,
     marginTop: theme.spacing.md,
@@ -1176,7 +1161,6 @@ const styles = StyleSheet.create({
     color: theme.color.onSurfaceTertiary,
     fontSize: 12,
   },
-
   rangeChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -1200,7 +1184,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: theme.color.surface,
   },
-
   rangeOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
