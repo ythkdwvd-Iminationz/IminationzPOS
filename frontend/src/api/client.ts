@@ -9,24 +9,24 @@ export interface InventoryItem {
   item_id: string;
   category: string;
   item_name: string;
-  price: number;
-  cost_price: number;
+  price: number; // Whole Number
+  cost_price: number; // Whole Number
   opening_qty: number;
   current_qty: number;
   sold_qty: number;
-  exchange_count: number; // NEW — how many times this item has been exchanged
+  exchange_count: number; 
   created_date: string;
   last_updated: string;
 }
 
 export interface BillItem {
-  id: string; // NEW — bill_items.id, needed to target a specific line for exchange
+  id: string; 
   inv_id: string;
   item_id: string;
   item_name: string;
-  price: number;
+  price: number; // Whole Number
   qty: number;
-  line_total: number;
+  line_total: number; // Whole Number
 }
 
 export interface Bill {
@@ -39,18 +39,14 @@ export interface Bill {
   time: string;
   iso: string;
   items: BillItem[];
-  gross_amount: number;
-  discount: number;
-  final_amount: number;
-  cash_amount: number;
-  upi_amount: number;
+  gross_amount: number; // Whole Number
+  discount: number; // Whole Number
+  final_amount: number; // Whole Number
+  cash_amount: number; // Whole Number
+  upi_amount: number; // Whole Number
   payment_status: string;
-  // who created this bill, captured server-side in create_bill().
-  // Older bills predating this feature will have these as null.
   created_by_email?: string | null;
   created_by_role?: "owner" | "employee" | null;
-  // NEW — exchange tracking (most-recent-exchange summary on the bill
-  // itself; full history lives in ExchangeHistoryEntry rows)
   exchanged_at?: string | null;
   exchange_count?: number;
   last_exchanged_by_email?: string | null;
@@ -64,28 +60,28 @@ export interface ExchangeHistoryEntry {
   old_item_id: string;
   old_item_name: string;
   old_qty: number;
-  old_line_total: number;
+  old_line_total: number; // Whole Number
   new_item_id: string;
   new_item_name: string;
   new_qty: number;
-  new_line_total: number;
-  price_diff: number;
-  cash_settled: number;
-  upi_settled: number;
-  exchanged_at: string; // ISO timestamp — the returned/exchanged date
+  new_line_total: number; // Whole Number
+  price_diff: number; // Whole Number
+  cash_settled: number; // Whole Number
+  upi_settled: number; // Whole Number
+  exchanged_at: string; 
   exchanged_by_email: string | null;
   exchanged_by_role: "owner" | "employee" | null;
 }
 
 export interface DashboardData {
   date: string;
-  total_sales: number;
-  total_cash: number;
-  total_upi: number;
+  total_sales: number; // Whole Number
+  total_cash: number; // Whole Number
+  total_upi: number; // Whole Number
   total_bills: number;
   items_sold: number;
-  discount_given: number;
-  average_bill_value: number;
+  discount_given: number; // Whole Number
+  average_bill_value: number; // Whole Number
   total_inventory_qty: number;
   low_stock_count: number;
   store_name: string;
@@ -94,12 +90,12 @@ export interface DashboardData {
 export interface DailyReport {
   date: string;
   total_bills: number;
-  total_sales: number;
-  total_cash: number;
-  total_upi: number;
-  discount_given: number;
+  total_sales: number; // Whole Number
+  total_cash: number; // Whole Number
+  total_upi: number; // Whole Number
+  discount_given: number; // Whole Number
   items_sold: number;
-  average_bill_value: number;
+  average_bill_value: number; // Whole Number
 }
 
 export interface InventoryReport {
@@ -112,7 +108,7 @@ export interface CustomerInfo {
   mobile: string;
   is_returning: boolean;
   visits: number;
-  total_spent: number;
+  total_spent: number; // Whole Number
   last_visit: string | null;
   last_name: string | null;
 }
@@ -120,10 +116,10 @@ export interface CustomerInfo {
 export interface CategoryRow {
   category: string;
   qty_sold: number;
-  revenue: number;
-  cost: number;
-  profit: number;
-  margin_pct: number;
+  revenue: number; // Whole Number
+  cost: number; // Whole Number
+  profit: number; // Whole Number
+  margin_pct: number; // Whole Number
 }
 
 export interface WhatsAppClosing {
@@ -133,27 +129,40 @@ export interface WhatsAppClosing {
   links: { number: string; url: string }[];
 }
 
+export interface ExpenseItem {
+  id?: string;
+  expense_id?: string;
+  amount: number; // Whole Number
+  source: "personal" | "business" | "both";
+  personal_amount: number; // Whole Number
+  business_amount: number; // Whole Number
+  note: string | null;
+}
+
 export interface Expense {
   id: string;
-  expense_date: string;
-  amount: number;
+  expense_date: string; 
+  parent_name: string;  
+  total_amount: number; // Whole Number
+  amount: number;        // Whole Number
   source: "personal" | "business" | "both";
-  personal_amount: number;
-  business_amount: number;
-  note: string | null;
+  personal_amount: number; // Whole Number
+  business_amount: number; // Whole Number
+  note: string | null;   
   receipt_base64: string | null;
   receipt_mime: string | null;
   created_at: string;
+  items?: ExpenseItem[]; 
 }
 
 export interface ExpenseOverview {
-  personal_fund_total: number;
-  business_fund_total: number; // = lifetime sales
-  personal_spent: number;
-  business_spent: number;
-  personal_balance: number;
-  business_balance: number;
-  total_expenses: number;
+  personal_fund_total: number; // Whole Number
+  business_fund_total: number; // Whole Number
+  personal_spent: number; // Whole Number
+  business_spent: number; // Whole Number
+  personal_balance: number; // Whole Number
+  business_balance: number; // Whole Number
+  total_expenses: number; // Whole Number
   entries: number;
 }
 
@@ -177,41 +186,26 @@ function dateRangeForFilter(filter: string, start?: string, end?: string) {
   return null;
 }
 
-function round2(n: number) {
-  return Math.round(n * 100) / 100;
+// CHANGED: Now completely truncates/rounds to a whole number
+function toWholeNumber(n: number) {
+  return Math.round(n);
 }
 
 // ---------- Auth ----------
 export type Role = "owner" | "employee";
 
 export async function fetchMyRole(): Promise<Role> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const { data: { session } } = await supabase.auth.getSession();
   const email = session?.user?.email?.toLowerCase().trim();
   if (!email) return "owner";
 
-  // Read the roles table (permissive policy in roles.sql v3 lets any
-  // authenticated user do this).
   const probe = await supabase.from("user_roles").select("email,role").limit(50);
+  if (probe.error) return "owner";
 
-  if (probe.error) {
-    // Any read error — table missing, RLS recursion, network, etc. —
-    // means we cannot reliably determine the role. Default to OWNER
-    // so the app owner never accidentally locks themselves out.
-    // (Employee restriction only activates when we can prove the
-    // user is listed as an employee.)
-    return "owner";
-  }
-
-  // Table read succeeded. Find this user's row.
   const myRow = (probe.data || []).find(
     (r: any) => String(r.email).toLowerCase().trim() === email
   );
-  if (!myRow) {
-    // Table exists and readable, but this user isn't listed — restrict.
-    return "employee";
-  }
+  if (!myRow) return "employee";
   return (myRow.role as Role) || "employee";
 }
 
@@ -231,29 +225,15 @@ export async function getSession() {
 }
 
 // ---------- OTP Auth ----------
-
-/**
- * Step 1: send a 6-digit OTP code to the given email.
- * `shouldCreateUser: false` means only emails that already exist as
- * Supabase Auth users (i.e. owner/employee accounts you created) can
- * request an OTP — random emails can't self-signup this way.
- */
 export async function requestLoginOtp(email: string) {
   const { error } = await supabase.auth.signInWithOtp({
     email: email.trim().toLowerCase(),
-    options: {
-      shouldCreateUser: false,
-    },
+    options: { shouldCreateUser: false },
   });
   if (error) throw new Error(error.message);
   return { sent: true };
 }
 
-/**
- * Step 2: verify the 6-digit code the user received by email.
- * On success, Supabase sets up the session exactly like a normal login —
- * everything downstream (fetchMyRole, RLS, etc.) works unchanged.
- */
 export async function verifyLoginOtp(email: string, token: string) {
   const { data, error } = await supabase.auth.verifyOtp({
     email: email.trim().toLowerCase(),
@@ -264,7 +244,7 @@ export async function verifyLoginOtp(email: string, token: string) {
   return { session: data.session, store_name: STORE_NAME };
 }
 
-// ---------- API surface (kept identical to old `api.*` for minimal screen churn) ----------
+// ---------- API surface ----------
 export const api = {
   login: async (email: string, password: string) => login(email, password),
 
@@ -276,7 +256,11 @@ export const api = {
       .order("category")
       .order("item_name");
     if (error) throw new Error(error.message);
-    return (data || []) as InventoryItem[];
+    return (data || []).map(i => ({
+      ...i,
+      price: toWholeNumber(i.price),
+      cost_price: toWholeNumber(i.cost_price)
+    })) as InventoryItem[];
   },
 
   createInventory: async (body: Partial<InventoryItem>): Promise<InventoryItem> => {
@@ -284,8 +268,8 @@ export const api = {
       item_id: (body.item_id || "").trim().toUpperCase(),
       category: body.category,
       item_name: body.item_name,
-      price: body.price,
-      cost_price: body.cost_price || 0,
+      price: toWholeNumber(body.price || 0),
+      cost_price: toWholeNumber(body.cost_price || 0),
       opening_qty: body.opening_qty,
       current_qty: body.current_qty ?? body.opening_qty,
       sold_qty: 0,
@@ -300,6 +284,9 @@ export const api = {
     const upd: any = { ...body, last_updated: new Date().toISOString() };
     delete upd.id;
     delete upd.item_id;
+    if (upd.price !== undefined) upd.price = toWholeNumber(upd.price);
+    if (upd.cost_price !== undefined) upd.cost_price = toWholeNumber(upd.cost_price);
+
     const { data, error } = await supabase
       .from("inventory")
       .update(upd)
@@ -328,8 +315,8 @@ export const api = {
       p_customer_mobile: body.customer_mobile || null,
       p_customer_name: body.customer_name || null,
       p_items: body.items.map((i) => ({ inv_id: i.inv_id, qty: i.qty })),
-      p_cash_amount: body.cash_amount,
-      p_upi_amount: body.upi_amount,
+      p_cash_amount: toWholeNumber(body.cash_amount),
+      p_upi_amount: toWholeNumber(body.upi_amount),
     });
     if (error) throw new Error(error.message);
     const { data: full, error: e2 } = await supabase
@@ -365,7 +352,6 @@ export const api = {
     return data as Bill;
   },
 
-  // ---- Exchange feature (owner only — enforced via RLS on bills UPDATE) ----
   exchangeBillItem: async (body: {
     bill_id: string;
     old_bill_item_id: string;
@@ -373,24 +359,14 @@ export const api = {
     new_qty: number;
     cash_amount: number;
     upi_amount: number;
-  }): Promise<{
-    bill_id: string;
-    old_item_name: string;
-    new_item_name: string;
-    price_diff: number;
-    settlement_collected: number;
-    new_gross_amount: number;
-    new_discount: number;
-    new_final_amount: number;
-    exchanged_at: string;
-  }> => {
+  }): Promise<any> => {
     const { data, error } = await supabase.rpc("exchange_bill_item", {
       p_bill_id: body.bill_id,
       p_old_bill_item_id: body.old_bill_item_id,
       p_new_inv_id: body.new_inv_id,
       p_new_qty: body.new_qty,
-      p_cash_amount: body.cash_amount,
-      p_upi_amount: body.upi_amount,
+      p_cash_amount: toWholeNumber(body.cash_amount),
+      p_upi_amount: toWholeNumber(body.upi_amount),
     });
     if (error) throw new Error(error.message);
     return data as any;
@@ -414,15 +390,15 @@ export const api = {
       supabase.from("inventory").select("current_qty"),
     ]);
     const list = bills || [];
-    const total_sales = round2(sum(list, (b) => Number(b.final_amount)));
-    const total_cash = round2(sum(list, (b) => Number(b.cash_amount)));
-    const total_upi = round2(sum(list, (b) => Number(b.upi_amount)));
+    const total_sales = toWholeNumber(sum(list, (b) => Number(b.final_amount)));
+    const total_cash = toWholeNumber(sum(list, (b) => Number(b.cash_amount)));
+    const total_upi = toWholeNumber(sum(list, (b) => Number(b.upi_amount)));
     const total_bills = list.length;
     const items_sold = list.reduce(
       (s, b) => s + ((b.items as any[]) || []).reduce((a, i) => a + Number(i.qty), 0),
       0
     );
-    const discount_given = round2(sum(list, (b) => Number(b.discount)));
+    const discount_given = toWholeNumber(sum(list, (b) => Number(b.discount)));
     const total_inventory_qty = (inv || []).reduce((a, i) => a + Number(i.current_qty), 0);
     const low_stock_count = (inv || []).filter((i) => Number(i.current_qty) <= 5).length;
     return {
@@ -433,7 +409,7 @@ export const api = {
       total_bills,
       items_sold,
       discount_given,
-      average_bill_value: total_bills ? round2(total_sales / total_bills) : 0,
+      average_bill_value: total_bills ? toWholeNumber(total_sales / total_bills) : 0,
       total_inventory_qty,
       low_stock_count,
       store_name: STORE_NAME,
@@ -446,19 +422,19 @@ export const api = {
     const { data, error } = await supabase.from("v_bills_full").select("*").eq("date", target);
     if (error) throw new Error(error.message);
     const list = data || [];
-    const total_sales = round2(sum(list, (b) => Number(b.final_amount)));
+    const total_sales = toWholeNumber(sum(list, (b) => Number(b.final_amount)));
     return {
       date: target,
       total_bills: list.length,
       total_sales,
-      total_cash: round2(sum(list, (b) => Number(b.cash_amount))),
-      total_upi: round2(sum(list, (b) => Number(b.upi_amount))),
-      discount_given: round2(sum(list, (b) => Number(b.discount))),
+      total_cash: toWholeNumber(sum(list, (b) => Number(b.cash_amount))),
+      total_upi: toWholeNumber(sum(list, (b) => Number(b.upi_amount))),
+      discount_given: toWholeNumber(sum(list, (b) => Number(b.discount))),
       items_sold: list.reduce(
         (s, b) => s + ((b.items as any[]) || []).reduce((a, i) => a + Number(i.qty), 0),
         0
       ),
-      average_bill_value: list.length ? round2(total_sales / list.length) : 0,
+      average_bill_value: list.length ? toWholeNumber(total_sales / list.length) : 0,
     };
   },
 
@@ -477,12 +453,7 @@ export const api = {
     const low_stock = items.filter((i) => i.current_qty <= 5);
     return {
       items,
-      summary: {
-        total_opening,
-        total_current,
-        total_sold,
-        low_stock_count: low_stock.length,
-      },
+      summary: { total_opening, total_current, total_sold, low_stock_count: low_stock.length },
       low_stock,
     };
   },
@@ -503,9 +474,6 @@ export const api = {
     (bills || []).forEach((b: any) => {
       const gross = Number(b.gross_amount) || 0;
       const finalAmt = Number(b.final_amount) || 0;
-      // Prorate the bill-level discount across each line so that a 100%
-      // discount (final_amount = 0) yields 0 revenue for every item on
-      // that bill. Fall back to raw line_total when gross is 0 (safety).
       const ratio = gross > 0 ? finalAmt / gross : 1;
       (b.items || []).forEach((it: any) => {
         const cat = catByItem[it.item_id] || "Unknown";
@@ -517,10 +485,10 @@ export const api = {
     });
     const rows: CategoryRow[] = Object.entries(agg)
       .map(([category, r]) => {
-        const revenue = round2(r.revenue);
-        const cost = round2(r.cost);
-        const profit = round2(revenue - cost);
-        const margin = revenue > 0 ? round2((profit / revenue) * 100) : 0;
+        const revenue = toWholeNumber(r.revenue);
+        const cost = toWholeNumber(r.cost);
+        const profit = toWholeNumber(revenue - cost);
+        const margin = revenue > 0 ? toWholeNumber((profit / revenue) * 100) : 0;
         return { category, qty_sold: r.qty, revenue, cost, profit, margin_pct: margin };
       })
       .sort((a, b) => b.revenue - a.revenue);
@@ -539,7 +507,7 @@ export const api = {
     if (list.length === 0) {
       return { mobile, is_returning: false, visits: 0, total_spent: 0, last_visit: null, last_name: null };
     }
-    const total_spent = round2(list.reduce((s: number, b: any) => s + Number(b.final_amount), 0));
+    const total_spent = toWholeNumber(list.reduce((s: number, b: any) => s + Number(b.final_amount), 0));
     const last_name = (list.find((b: any) => b.customer_name)?.customer_name) || null;
     return {
       mobile,
@@ -559,10 +527,10 @@ export const api = {
       `Date: ${r.date}`,
       "",
       `Bills: ${r.total_bills}`,
-      `Total Sales: ₹${r.total_sales.toLocaleString("en-IN")}`,
-      `Cash: ₹${r.total_cash.toLocaleString("en-IN")}`,
-      `UPI: ₹${r.total_upi.toLocaleString("en-IN")}`,
-      `Discount Given: ₹${r.discount_given.toLocaleString("en-IN")}`,
+      `Total Sales: ₹${toWholeNumber(r.total_sales).toLocaleString("en-IN")}`,
+      `Cash: ₹${toWholeNumber(r.total_cash).toLocaleString("en-IN")}`,
+      `UPI: ₹${toWholeNumber(r.total_upi).toLocaleString("en-IN")}`,
+      `Discount Given: ₹${toWholeNumber(r.discount_given).toLocaleString("en-IN")}`,
       `Items Sold: ${r.items_sold}`,
     ];
     const message = lines.join("\n");
@@ -580,9 +548,7 @@ export const api = {
 
   // Seed sample inventory (idempotent)
   seed: async () => {
-    const { count } = await supabase
-      .from("inventory")
-      .select("*", { count: "exact", head: true });
+    const { count } = await supabase.from("inventory").select("*", { count: "exact", head: true });
     if ((count || 0) > 0) return { seeded: false };
     const samples = [
       ["PENDANT250", "Pendant", "Pendant 250", 250, 80, 100],
@@ -597,7 +563,7 @@ export const api = {
       ["ANKLET350", "Anklet", "Anklet 350", 350, 130, 5],
     ];
     const payload = samples.map(([item_id, category, name, price, cost, qty]) => ({
-      item_id, category, item_name: name, price, cost_price: cost,
+      item_id, category, item_name: name, price: toWholeNumber(price as number), cost_price: toWholeNumber(cost as number),
       opening_qty: qty, current_qty: qty, sold_qty: 0,
     }));
     const { error } = await supabase.from("inventory").insert(payload);
@@ -606,114 +572,51 @@ export const api = {
   },
 };
 
-// ---------- Expenses ----------
-// ---------- Expenses Types ----------
-export interface ExpenseItem {
-  id?: string;
-  expense_id?: string;
-  amount: number;
-  source: "personal" | "business" | "both";
-  personal_amount: number;
-  business_amount: number;
-  note: string | null;
-}
-
-export interface Expense {
-  id: string;
-  expense_date: string; // YYYY-MM-DD
-  parent_name: string;  // The overall description/title of the batch
-  total_amount: number;
-  amount: number;        // Alias for compatibility with old components
-  source: "personal" | "business" | "both";
-  personal_amount: number;
-  business_amount: number;
-  note: string | null;   // Concatenated or structural overview summary
-  receipt_base64: string | null;
-  receipt_mime: string | null;
-  created_at: string;
-  items?: ExpenseItem[]; // Nested child records
-}
-
-export interface ExpenseOverview {
-  personal_fund_total: number;
-  business_fund_total: number;
-  personal_spent: number;
-  business_spent: number;
-  personal_balance: number;
-  business_balance: number;
-  total_expenses: number;
-  entries: number;
-}
-
-// ---------- Enhanced Date Formatter ----------
-export function formatDisplayDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return "";
-  const cleanDate = dateStr.split("T")[0]; 
-  const [year, month, day] = cleanDate.split("-");
-  if (!year || !month || !day) return dateStr;
-
-  const months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
-  
-  const monthName = months[parseInt(month, 10) - 1] || month;
-  return `${parseInt(day, 10)} ${monthName} ${year}`; // e.g. 8 February 2026
-}
-
 // ---------- Updated Expenses API Surface ----------
 export const expensesApi = {
   overview: async (): Promise<ExpenseOverview> => {
     const [salesRes, expRes, setRes] = await Promise.all([
       supabase.from("bills").select("final_amount"),
-      supabase
-        .from("expenses")
-        .select("amount,personal_amount,business_amount"),
-      supabase
-        .from("app_settings")
-        .select("value_num")
-        .eq("key", "personal_fund_total")
-        .maybeSingle(),
+      supabase.from("expenses").select("amount,personal_amount,business_amount"),
+      supabase.from("app_settings").select("value_num").eq("key", "personal_fund_total").maybeSingle(),
     ]);
     if (salesRes.error) throw new Error(salesRes.error.message);
     if (expRes.error) throw new Error(expRes.error.message);
-    if (setRes.error && !setRes.error.message.includes("row"))
-      throw new Error(setRes.error.message);
+    if (setRes.error && !setRes.error.message.includes("row")) throw new Error(setRes.error.message);
 
-    const business_fund_total = round2(sum(salesRes.data || [], (b: any) => Number(b.final_amount)));
-    const personal_spent = round2(sum(expRes.data || [], (e: any) => Number(e.personal_amount)));
-    const business_spent = round2(sum(expRes.data || [], (e: any) => Number(e.business_amount)));
-    const total_expenses = round2(sum(expRes.data || [], (e: any) => Number(e.amount)));
-    const personal_fund_total = Number(setRes.data?.value_num ?? 200000);
+    const business_fund_total = toWholeNumber(sum(salesRes.data || [], (b: any) => Number(b.final_amount)));
+    const personal_spent = toWholeNumber(sum(expRes.data || [], (e: any) => Number(e.personal_amount)));
+    const business_spent = toWholeNumber(sum(expRes.data || [], (e: any) => Number(e.business_amount)));
+    const total_expenses = toWholeNumber(sum(expRes.data || [], (e: any) => Number(e.amount)));
+    const personal_fund_total = toWholeNumber(setRes.data?.value_num ?? 200000);
 
     return {
       personal_fund_total,
       business_fund_total,
       personal_spent,
       business_spent,
-      personal_balance: round2(personal_fund_total - personal_spent),
-      business_balance: round2(business_fund_total - business_spent),
+      personal_balance: toWholeNumber(personal_fund_total - personal_spent),
+      business_balance: toWholeNumber(business_fund_total - business_spent),
       total_expenses,
       entries: (expRes.data || []).length,
     };
   },
 
   list: async (): Promise<Expense[]> => {
-    // Fetches parent records along with their child line items
     const { data, error } = await supabase
       .from("expenses")
-      .select(`
-        *,
-        items:expense_items(*)
-      `)
+      .select(`*, items:expense_items(*)`)
       .order("expense_date", { ascending: false })
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     
     return (data || []).map((e: any) => ({
       ...e,
+      amount: toWholeNumber(e.amount),
+      personal_amount: toWholeNumber(e.personal_amount),
+      business_amount: toWholeNumber(e.business_amount),
       parent_name: e.parent_name || e.note || "Unnamed Batch",
-      total_amount: e.amount
+      total_amount: toWholeNumber(e.amount)
     })) as Expense[];
   },
 
@@ -729,16 +632,15 @@ export const expensesApi = {
     receipt_mime?: string | null;
     items: ExpenseItem[];
   }): Promise<Expense> => {
-    // 1. Insert Parent
     const { data: parent, error: pErr } = await supabase
       .from("expenses")
       .insert({
         expense_date: body.expense_date,
         parent_name: body.parent_name,
-        amount: body.amount,
+        amount: toWholeNumber(body.amount),
         source: body.source,
-        personal_amount: body.personal_amount,
-        business_amount: body.business_amount,
+        personal_amount: toWholeNumber(body.personal_amount),
+        business_amount: toWholeNumber(body.business_amount),
         note: body.note,
         receipt_base64: body.receipt_base64,
         receipt_mime: body.receipt_mime
@@ -748,14 +650,13 @@ export const expensesApi = {
 
     if (pErr) throw new Error(pErr.message);
 
-    // 2. Insert Children Linked to Parent
     if (body.items && body.items.length > 0) {
       const childrenPayload = body.items.map(item => ({
         expense_id: parent.id,
-        amount: item.amount,
+        amount: toWholeNumber(item.amount),
         source: item.source,
-        personal_amount: item.personal_amount,
-        business_amount: item.business_amount,
+        personal_amount: toWholeNumber(item.personal_amount),
+        business_amount: toWholeNumber(item.business_amount),
         note: item.note
       }));
 
@@ -776,32 +677,30 @@ export const expensesApi = {
     note: string | null;
     items: ExpenseItem[];
   }): Promise<void> => {
-    // 1. Update parent row
     const { error: pErr } = await supabase
       .from("expenses")
       .update({
         expense_date: body.expense_date,
         parent_name: body.parent_name,
-        amount: body.amount,
+        amount: toWholeNumber(body.amount),
         source: body.source,
-        personal_amount: body.personal_amount,
-        business_amount: body.business_amount,
+        personal_amount: toWholeNumber(body.personal_amount),
+        business_amount: toWholeNumber(body.business_amount),
         note: body.note
       })
       .eq("id", id);
     if (pErr) throw new Error(pErr.message);
 
-    // 2. Drop historical child items and rewrite current stack state
     const { error: dErr } = await supabase.from("expense_items").delete().eq("expense_id", id);
     if (dErr) throw new Error(dErr.message);
 
     if (body.items && body.items.length > 0) {
       const childrenPayload = body.items.map(item => ({
         expense_id: id,
-        amount: item.amount,
+        amount: toWholeNumber(item.amount),
         source: item.source,
-        personal_amount: item.personal_amount,
-        business_amount: item.business_amount,
+        personal_amount: toWholeNumber(item.personal_amount),
+        business_amount: toWholeNumber(item.business_amount),
         note: item.note
       }));
       const { error: cErr } = await supabase.from("expense_items").insert(childrenPayload);
@@ -813,7 +712,7 @@ export const expensesApi = {
     const { error } = await supabase
       .from("app_settings")
       .upsert(
-        { key: "personal_fund_total", value_num: value, updated_at: new Date().toISOString() },
+        { key: "personal_fund_total", value_num: toWholeNumber(value), updated_at: new Date().toISOString() },
         { onConflict: "key" }
       );
     if (error) throw new Error(error.message);
@@ -825,34 +724,41 @@ export const expensesApi = {
     const out: { table: string; ok: boolean; message: string }[] = [];
     for (const t of tables) {
       const { error } = await supabase.from(t).select("*").limit(1);
-      if (error) {
-        out.push({ table: t, ok: false, message: error.message });
-      } else {
-        out.push({ table: t, ok: true, message: "reachable" });
-      }
+      out.push({ table: t, ok: !error, message: error ? error.message : "reachable" });
     }
     return out;
   },
 };
 
-// ---------- token helpers (kept for backward compatibility with screens) ----------
+// ---------- Enhanced Date Formatter ----------
+export function formatDisplayDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  const cleanDate = dateStr.split("T")[0]; 
+  const [year, month, day] = cleanDate.split("-");
+  if (!year || !month || !day) return dateStr;
+
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  const monthName = months[parseInt(month, 10) - 1] || month;
+  return `${parseInt(day, 10)} ${monthName} ${year}`;
+}
+
+// ---------- token helpers ----------
 export async function getToken(): Promise<string | null> {
   const s = await getSession();
   return s?.access_token || null;
 }
-export async function clearToken() {
-  await logout();
-}
-export async function setToken(_t: string) {
-  // no-op — Supabase manages session in storage
-}
+export async function clearToken() { await logout(); }
+export async function setToken(_t: string) {}
 
-// ---------- Billing config (configurable discount) ----------
+// ---------- Billing config ----------
 export type DiscountType = "percent" | "flat";
 export interface BillingConfig {
   discount_type: DiscountType;
-  discount_value: number;      // 10 for 10% or 100 for ₹100 flat
-  discount_min_order: number;  // min gross to activate discount
+  discount_value: number;      
+  discount_min_order: number;  
 }
 
 const DEFAULT_BILLING_CONFIG: BillingConfig = {
@@ -875,10 +781,10 @@ export const settingsApi = {
         if (t === "flat" || t === "percent") cfg.discount_type = t as DiscountType;
       } else if (r.key === "discount_value") {
         const n = Number(r.value_num);
-        if (!isNaN(n) && n >= 0) cfg.discount_value = n;
+        if (!isNaN(n) && n >= 0) cfg.discount_value = toWholeNumber(n);
       } else if (r.key === "discount_min_order") {
         const n = Number(r.value_num);
-        if (!isNaN(n) && n >= 0) cfg.discount_min_order = n;
+        if (!isNaN(n) && n >= 0) cfg.discount_min_order = toWholeNumber(n);
       }
     });
     return cfg;
@@ -888,12 +794,10 @@ export const settingsApi = {
     const now = new Date().toISOString();
     const rows = [
       { key: "discount_type", value_num: null, value_text: cfg.discount_type, updated_at: now },
-      { key: "discount_value", value_num: cfg.discount_value, value_text: null, updated_at: now },
-      { key: "discount_min_order", value_num: cfg.discount_min_order, value_text: null, updated_at: now },
+      { key: "discount_value", value_num: toWholeNumber(cfg.discount_value), value_text: null, updated_at: now },
+      { key: "discount_min_order", value_num: toWholeNumber(cfg.discount_min_order), value_text: null, updated_at: now },
     ];
-    const { error } = await supabase
-      .from("app_settings")
-      .upsert(rows, { onConflict: "key" });
+    const { error } = await supabase.from("app_settings").upsert(rows, { onConflict: "key" });
     if (error) throw new Error(error.message);
   },
 };
@@ -932,13 +836,15 @@ export const damagedApi = {
     if (status) q = q.eq("status", status);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return (data || []) as DamagedItem[];
+    return (data || []).map(i => ({
+      ...i,
+      unit_price: toWholeNumber(i.unit_price),
+      sold_price: i.sold_price ? toWholeNumber(i.sold_price) : null
+    })) as DamagedItem[];
   },
 
   summary: async (): Promise<DamagedSummary> => {
-    const { data, error } = await supabase
-      .from("damaged_items")
-      .select("status,qty,sold_price,unit_price");
+    const { data, error } = await supabase.from("damaged_items").select("status,qty,sold_price,unit_price");
     if (error) throw new Error(error.message);
     const list = data || [];
     let in_stock_count = 0, in_stock_qty = 0;
@@ -960,9 +866,9 @@ export const damagedApi = {
       in_stock_count,
       in_stock_qty,
       sold_count,
-      sold_revenue: round2(sold_revenue),
+      sold_revenue: toWholeNumber(sold_revenue),
       discarded_count,
-      loss_at_cost: round2(loss_at_cost),
+      loss_at_cost: toWholeNumber(loss_at_cost),
     };
   },
 
@@ -979,7 +885,7 @@ export const damagedApi = {
   sellDamaged: async (id: string, sold_price: number, note: string | null) => {
     const { data, error } = await supabase.rpc("sell_damaged", {
       p_damaged_id: id,
-      p_sold_price: sold_price,
+      p_sold_price: toWholeNumber(sold_price),
       p_note: note,
     });
     if (error) throw new Error(error.message);
@@ -992,8 +898,6 @@ export const damagedApi = {
     return data;
   },
 };
-
-
 
 // ---------- utils ----------
 function sum<T>(arr: T[], f: (t: T) => number) {
