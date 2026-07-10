@@ -115,6 +115,7 @@ function buildBillHtml(bill: Bill, exchangeHistory: ExchangeHistoryEntry[]) {
         .td { padding: 4px 2px; font-size: 12px; }
         .td.qty, .td.price, .td.total { text-align: right; }
         .td.name { width: 45%; }
+        .stamp-wrap { display: none; }
         .paid-stamp { display: none; }
         .thanks {
           text-align: center;
