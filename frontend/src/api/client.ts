@@ -490,7 +490,7 @@ export const api = {
   // Category Report
   categoryReport: async (): Promise<{ rows: CategoryRow[] }> => {
     const [{ data: bills }, { data: inv }] = await Promise.all([
-      supabase.from("v_bills_full").select("items"),
+      supabase.from("v_bills_full").select("items,gross_amount,discount,final_amount"),
       supabase.from("inventory").select("item_id,category,cost_price"),
     ]);
     const costByItem: Record<string, number> = {};
@@ -501,11 +501,17 @@ export const api = {
     });
     const agg: Record<string, { qty: number; revenue: number; cost: number }> = {};
     (bills || []).forEach((b: any) => {
+      const gross = Number(b.gross_amount) || 0;
+      const finalAmt = Number(b.final_amount) || 0;
+      // Prorate the bill-level discount across each line so that a 100%
+      // discount (final_amount = 0) yields 0 revenue for every item on
+      // that bill. Fall back to raw line_total when gross is 0 (safety).
+      const ratio = gross > 0 ? finalAmt / gross : 1;
       (b.items || []).forEach((it: any) => {
         const cat = catByItem[it.item_id] || "Unknown";
         const row = agg[cat] || (agg[cat] = { qty: 0, revenue: 0, cost: 0 });
         row.qty += Number(it.qty);
-        row.revenue += Number(it.line_total);
+        row.revenue += Number(it.line_total) * ratio;
         row.cost += (costByItem[it.item_id] || 0) * Number(it.qty);
       });
     });

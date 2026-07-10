@@ -6,26 +6,196 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  Share,
   Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import { api, Bill, ExchangeHistoryEntry } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 
 // The receipt is meant to look like a physical paper receipt — always
 // white with black ink — regardless of whether the surrounding app is
-// running a light or dark theme. `theme.color.surfaceInverse` is NOT
-// the right token for this: it's designed to be "whatever's opposite
-// the current app surface," which flips meaning whenever the app theme
-// changes (it was near-white under the old dark theme, but is now
-// near-black under the new light theme — that's exactly what caused
-// the receipt to render with a black background after the theme swap).
-// A receipt needs a fixed, theme-independent color instead.
+// running a light or dark theme.
 const RECEIPT_PAPER = "#FFFFFF";
 const RECEIPT_INK = "#000000";
+
+const escHtml = (s: string) =>
+  String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+function buildBillHtml(bill: Bill, exchangeHistory: ExchangeHistoryEntry[]) {
+  const discountPct =
+    bill.gross_amount > 0 && bill.discount > 0
+      ? Math.round((bill.discount / bill.gross_amount) * 100)
+      : null;
+  const discountLabel =
+    discountPct != null && discountPct > 0 ? `Discount (${discountPct}%)` : "Discount";
+  const paidState = bill.payment_status === "PAID";
+
+  const itemRows = bill.items
+    .map(
+      (i) => `
+        <tr>
+          <td class="td name">${escHtml(i.item_name)}</td>
+          <td class="td qty">${i.qty}</td>
+          <td class="td price">${formatINRPlain(i.price)}</td>
+          <td class="td total"><b>${formatINRPlain(i.line_total)}</b></td>
+        </tr>
+      `
+    )
+    .join("");
+
+  const exchangeBlock = exchangeHistory.length
+    ? `
+      <div class="dash"></div>
+      <div class="section-title">Exchange Record</div>
+      ${exchangeHistory
+        .map(
+          (ex) => `
+        <div class="ex-row">
+          <div class="ex-date">${escHtml(
+            new Date(ex.exchanged_at).toLocaleString("en-IN")
+          )}</div>
+          <div class="ex-line">Returned: ${escHtml(ex.old_item_name)} (x${
+            ex.old_qty
+          }) — ${formatINRPlain(ex.old_line_total)}</div>
+          <div class="ex-line">Given: ${escHtml(ex.new_item_name)} (x${
+            ex.new_qty
+          }) — ${formatINRPlain(ex.new_line_total)}</div>
+          <div class="ex-diff">${
+            ex.price_diff >= 0
+              ? `Customer paid ${formatINRPlain(ex.price_diff)}`
+              : `Refunded ${formatINRPlain(-ex.price_diff)}`
+          }</div>
+        </div>
+      `
+        )
+        .join("")}
+    `
+    : "";
+
+  return `
+  <!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>${escHtml(bill.bill_number)}</title>
+      <style>
+        @page { size: 80mm auto; margin: 6mm; }
+        * { box-sizing: border-box; }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+          margin: 0; padding: 0;
+          color: ${RECEIPT_INK};
+          background: ${RECEIPT_PAPER};
+          font-size: 12px;
+        }
+        .paper {
+          max-width: 360px;
+          margin: 0 auto;
+          padding: 18px 18px 24px;
+        }
+        .store { font-size: 22px; font-weight: 900; letter-spacing: 4px; text-align: center; }
+        .tag { font-size: 11px; color: #666; text-align: center; margin-top: 4px; letter-spacing: 1.5px; font-style: italic; }
+        .dash { border-top: 1px dashed #999; margin: 10px 0; }
+        .row { display: flex; justify-content: space-between; margin-top: 4px; }
+        .row .k { color: #444; font-weight: 500; }
+        .row .v { color: ${RECEIPT_INK}; font-weight: 600; }
+        .row.big .k { font-size: 15px; font-weight: 700; }
+        .row.big .v { font-size: 18px; font-weight: 800; }
+        table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        .th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #333; padding: 4px 2px; border-bottom: 1px solid #ddd; }
+        .td { padding: 4px 2px; font-size: 12px; }
+        .td.qty, .td.price, .td.total { text-align: right; }
+        .td.name { width: 45%; }
+        .paid-stamp {
+          margin: 16px auto 0;
+          border: 3px solid ${paidState ? "#2E8B57" : "#9B111E"};
+          color: ${paidState ? "#2E8B57" : "#9B111E"};
+          padding: 6px 22px;
+          border-radius: 8px;
+          display: inline-block;
+          font-weight: 800;
+          letter-spacing: 4px;
+          font-size: 20px;
+          transform: rotate(-6deg);
+        }
+        .stamp-wrap { text-align: center; margin-top: 12px; }
+        .thanks {
+          text-align: center;
+          margin-top: 20px;
+          font-size: 14px;
+          font-weight: 900;
+          letter-spacing: 1px;
+          color: ${RECEIPT_INK};
+        }
+        .section-title {
+          font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+          color: #333; margin-bottom: 6px;
+        }
+        .ex-row { padding: 6px 0; border-bottom: 1px solid #eee; }
+        .ex-date { color: #888; font-size: 10px; font-weight: 700; }
+        .ex-line { font-size: 11px; margin-top: 2px; }
+        .ex-diff { color: #9B111E; font-size: 11px; font-weight: 700; margin-top: 3px; }
+      </style>
+    </head>
+    <body>
+      <div class="paper">
+        <div class="store">IMINATIONZ</div>
+        <div class="tag">Wear Elegance. Share Kindness.</div>
+        <div class="dash"></div>
+        <div class="row"><span class="k">Bill No</span><span class="v">${escHtml(bill.bill_number)}</span></div>
+        <div class="row"><span class="k">Date</span><span class="v">${escHtml(bill.date)}</span></div>
+        <div class="row"><span class="k">Day</span><span class="v">${escHtml(bill.day)}</span></div>
+        <div class="row"><span class="k">Time</span><span class="v">${escHtml(bill.time)}</span></div>
+        ${bill.customer_name ? `<div class="row"><span class="k">Name</span><span class="v">${escHtml(bill.customer_name)}</span></div>` : ""}
+        ${bill.customer_mobile ? `<div class="row"><span class="k">Mobile</span><span class="v">${escHtml(bill.customer_mobile)}</span></div>` : ""}
+        <div class="dash"></div>
+
+        <table>
+          <thead>
+            <tr>
+              <th class="th">Item</th>
+              <th class="th" style="text-align:right;">Qty</th>
+              <th class="th" style="text-align:right;">Rate</th>
+              <th class="th" style="text-align:right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>${itemRows}</tbody>
+        </table>
+
+        ${exchangeBlock}
+
+        <div class="dash"></div>
+        <div class="row"><span class="k">Gross</span><span class="v">${formatINRPlain(bill.gross_amount)}</span></div>
+        ${
+          bill.discount > 0
+            ? `<div class="row"><span class="k">${discountLabel}</span><span class="v">-${formatINRPlain(bill.discount)}</span></div>`
+            : ""
+        }
+        <div class="row big"><span class="k">Final</span><span class="v">${formatINRPlain(bill.final_amount)}</span></div>
+        <div class="dash"></div>
+        <div class="row"><span class="k">Cash</span><span class="v">${formatINRPlain(bill.cash_amount)}</span></div>
+        <div class="row"><span class="k">UPI</span><span class="v">${formatINRPlain(bill.upi_amount)}</span></div>
+
+        <div class="stamp-wrap">
+          <div class="paid-stamp">${escHtml(bill.payment_status)}</div>
+        </div>
+
+        <div class="thanks">Thank you for supporting us</div>
+      </div>
+    </body>
+  </html>
+  `;
+}
 
 export default function InvoiceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -34,20 +204,20 @@ export default function InvoiceScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exchangeHistory, setExchangeHistory] = useState<ExchangeHistoryEntry[]>([]);
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         const b = await api.getBill(id);
         setBill(b);
-        // Only bother fetching history for bills that were actually
-        // exchanged — most bills never touch this table.
         if ((b.exchange_count || 0) > 0) {
           try {
             const hist = await api.getExchangeHistory(id);
             setExchangeHistory(hist);
           } catch {
-            // Non-fatal — the invoice still renders fine without history.
+            // Non-fatal
           }
         }
       } catch (e: any) {
@@ -58,51 +228,59 @@ export default function InvoiceScreen() {
     })();
   }, [id]);
 
-  const onShare = async () => {
-    if (!bill) return;
-    const lines = [
-      "IMINATIONZ",
-      "Jewellery POS",
-      "------------------------",
-      `Bill: ${bill.bill_number}`,
-      `Date: ${bill.date} ${bill.day} ${bill.time}`,
-      bill.customer_mobile ? `Mobile: ${bill.customer_mobile}` : null,
-      "------------------------",
-      ...bill.items.map(
-        (i) => `${i.item_name} x${i.qty}  ${formatINRPlain(i.line_total)}`
-      ),
-      "------------------------",
-      `Gross: ${formatINRPlain(bill.gross_amount)}`,
-      bill.discount > 0 ? `Discount: -${formatINRPlain(bill.discount)}` : null,
-      `Final: ${formatINRPlain(bill.final_amount)}`,
-      `Cash: ${formatINRPlain(bill.cash_amount)}`,
-      `UPI:  ${formatINRPlain(bill.upi_amount)}`,
-      `Status: ${bill.payment_status}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
-    try {
-      if (Platform.OS === "web") {
-        // Share API may not work on web — copy/print fallback
-        if (navigator?.clipboard?.writeText) {
-          await navigator.clipboard.writeText(lines);
-        }
-        if (typeof window !== "undefined" && window.print) {
-          window.print();
-        }
-      } else {
-        await Share.share({ message: lines, title: `Invoice ${bill.bill_number}` });
-      }
-    } catch {
-      // ignore
-    }
-  };
+  const discountPct =
+    bill && bill.gross_amount > 0 && bill.discount > 0
+      ? Math.round((bill.discount / bill.gross_amount) * 100)
+      : null;
 
-  const onPrint = () => {
-    if (Platform.OS === "web" && typeof window !== "undefined" && window.print) {
-      window.print();
-    } else {
-      onShare();
+  const onSharePdf = async () => {
+    if (!bill || sharing) return;
+    setShareError(null);
+    setSharing(true);
+    try {
+      const html = buildBillHtml(bill, exchangeHistory);
+
+      if (Platform.OS === "web") {
+        // Web: open a printable window; user can Save as PDF.
+        const w = window.open("", "_blank");
+        if (w) {
+          w.document.open();
+          w.document.write(html);
+          w.document.close();
+          setTimeout(() => {
+            try {
+              w.focus();
+              w.print();
+            } catch {
+              /* noop */
+            }
+          }, 350);
+        }
+        return;
+      }
+
+      // Native: generate PDF in cache dir and open the OS share sheet
+      // directly so the user can send via WhatsApp / Mail / Airdrop / etc.
+      // without any explicit "download / save" step first.
+      const { uri } = await Print.printToFileAsync({
+        html,
+        base64: false,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: "application/pdf",
+          dialogTitle: `Invoice ${bill.bill_number}`,
+          UTI: "com.adobe.pdf",
+        });
+      } else {
+        setShareError("Sharing is not available on this device");
+      }
+    } catch (e: any) {
+      setShareError(e?.message || "Failed to share invoice");
+    } finally {
+      setSharing(false);
     }
   };
 
@@ -119,12 +297,12 @@ export default function InvoiceScreen() {
       {loading ? (
         <ActivityIndicator color={theme.color.brandPrimary} style={{ marginTop: 32 }} />
       ) : error ? (
-        <Text style={[styles.errText]}>{error}</Text>
+        <Text style={styles.errText}>{error}</Text>
       ) : bill ? (
         <ScrollView contentContainerStyle={{ padding: theme.spacing.lg }}>
           <View style={styles.receipt} testID="invoice-receipt">
             <Text style={styles.store}>IMINATIONZ</Text>
-            <Text style={styles.tag}>Jewellery POS</Text>
+            <Text style={styles.tag}>Wear Elegance. Share Kindness.</Text>
             <View style={styles.dash} />
             <Row k="Bill No" v={bill.bill_number} />
             <Row k="Date" v={`${bill.date}`} />
@@ -191,7 +369,12 @@ export default function InvoiceScreen() {
             <View style={styles.dash} />
 
             <Row k="Gross" v={formatINRPlain(bill.gross_amount)} />
-            {bill.discount > 0 && <Row k="Discount 10%" v={`-${formatINRPlain(bill.discount)}`} />}
+            {bill.discount > 0 && (
+              <Row
+                k={discountPct != null ? `Discount (${discountPct}%)` : "Discount"}
+                v={`-${formatINRPlain(bill.discount)}`}
+              />
+            )}
             <Row k="Final" v={formatINRPlain(bill.final_amount)} bold big />
             <View style={styles.dash} />
             <Row k="Cash" v={formatINRPlain(bill.cash_amount)} />
@@ -216,17 +399,34 @@ export default function InvoiceScreen() {
                 {bill.payment_status}
               </Text>
             </View>
-            <Text style={styles.footer}>Thank you for shopping with us!</Text>
+            <Text style={styles.thanks} testID="thankyou-text">
+              Thank you for supporting us
+            </Text>
           </View>
 
+          {shareError && (
+            <Text testID="share-error" style={styles.shareError}>
+              {shareError}
+            </Text>
+          )}
+
           <View style={styles.actions}>
-            <Pressable testID="share-button" onPress={onShare} style={[styles.btn, styles.outlineBtn]}>
-              <Ionicons name="share-outline" size={18} color={theme.color.onSurface} />
-              <Text style={[styles.btnText, { color: theme.color.onSurface }]}>Share / PDF</Text>
-            </Pressable>
-            <Pressable testID="print-button" onPress={onPrint} style={[styles.btn, styles.primaryBtn]}>
-              <Ionicons name="print-outline" size={18} color={theme.color.onBrandPrimary} />
-              <Text style={[styles.btnText, { color: theme.color.onBrandPrimary }]}>Print</Text>
+            <Pressable
+              testID="share-button"
+              onPress={onSharePdf}
+              disabled={sharing}
+              style={[styles.btn, styles.primaryBtn, sharing && { opacity: 0.6 }]}
+            >
+              {sharing ? (
+                <ActivityIndicator color={theme.color.onBrandPrimary} />
+              ) : (
+                <>
+                  <Ionicons name="share-social" size={18} color={theme.color.onBrandPrimary} />
+                  <Text style={[styles.btnText, { color: theme.color.onBrandPrimary }]}>
+                    Share Bill as PDF
+                  </Text>
+                </>
+              )}
             </Pressable>
           </View>
         </ScrollView>
@@ -267,11 +467,6 @@ const styles = StyleSheet.create({
   title: { color: theme.color.onSurface, fontSize: 18, fontWeight: "700" },
   errText: { color: theme.color.error, textAlign: "center", marginTop: 24 },
   receipt: {
-    // FIX: was `theme.color.surfaceInverse`, which now resolves to a
-    // near-black color under the new light theme (it flipped meaning
-    // when the app theme changed). A receipt should always be white
-    // paper with black ink, independent of the app's theme — using a
-    // fixed constant instead of a theme-relative token.
     backgroundColor: RECEIPT_PAPER,
     borderRadius: theme.radius.md,
     padding: theme.spacing.lg,
@@ -279,7 +474,14 @@ const styles = StyleSheet.create({
     borderColor: "#E5E5E5",
   },
   store: { fontSize: 24, fontWeight: "900", color: RECEIPT_INK, textAlign: "center", letterSpacing: 3 },
-  tag: { fontSize: 11, color: "#666", textAlign: "center", marginTop: 2, letterSpacing: 2 },
+  tag: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+    marginTop: 4,
+    letterSpacing: 1.5,
+    fontStyle: "italic",
+  },
   dash: { borderTopWidth: 1, borderTopColor: "#bbb", borderStyle: "dashed", marginVertical: 8 },
   exchangeHistTitle: {
     color: "#333",
@@ -295,23 +497,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
   },
-  exchangeHistDate: {
-    color: "#888",
-    fontSize: 10,
-    fontWeight: "700",
-    marginBottom: 3,
-  },
-  exchangeHistLine: {
-    color: RECEIPT_INK,
-    fontSize: 11,
-    marginTop: 1,
-  },
-  exchangeHistDiff: {
-    color: "#9B111E",
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 3,
-  },
+  exchangeHistDate: { color: "#888", fontSize: 10, fontWeight: "700", marginBottom: 3 },
+  exchangeHistLine: { color: RECEIPT_INK, fontSize: 11, marginTop: 1 },
+  exchangeHistDiff: { color: "#9B111E", fontSize: 11, fontWeight: "700", marginTop: 3 },
   thead: { flexDirection: "row", marginTop: 4 },
   th: { color: "#333", fontWeight: "700", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 },
   tr: { flexDirection: "row", paddingVertical: 4 },
@@ -325,18 +513,30 @@ const styles = StyleSheet.create({
     marginTop: 12,
     transform: [{ rotate: "-6deg" }],
   },
-  footer: { textAlign: "center", color: "#666", fontSize: 11, marginTop: 16, fontStyle: "italic" },
+  thanks: {
+    textAlign: "center",
+    color: RECEIPT_INK,
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 1,
+    marginTop: 18,
+  },
+  shareError: {
+    color: theme.color.error,
+    textAlign: "center",
+    marginTop: theme.spacing.md,
+    fontSize: 13,
+  },
   actions: { flexDirection: "row", gap: theme.spacing.md, marginTop: theme.spacing.xl },
   btn: {
     flex: 1,
     flexDirection: "row",
-    gap: 6,
+    gap: 8,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 14,
     borderRadius: theme.radius.md,
   },
-  outlineBtn: { borderWidth: 1, borderColor: theme.color.border, backgroundColor: theme.color.surfaceSecondary },
   primaryBtn: { backgroundColor: theme.color.brandPrimary },
   btnText: { fontWeight: "700", fontSize: 14 },
 });

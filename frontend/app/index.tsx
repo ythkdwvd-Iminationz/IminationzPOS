@@ -118,7 +118,7 @@ export default function LoginScreen() {
               <Ionicons name="diamond" size={42} color={theme.color.brandPrimary} />
             </View>
             <Text style={styles.brandName}>Iminationz</Text>
-            <Text style={styles.brandSub}>Jewellery POS · Supabase</Text>
+            <Text style={styles.brandSub}>Wear Elegance. Share Kindness.</Text>
           </View>
 
           <View style={styles.form}>
