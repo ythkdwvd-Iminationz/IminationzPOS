@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import * as FileSystem from "expo-file-system";
 import { api, Bill, ExchangeHistoryEntry } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 
@@ -37,8 +38,6 @@ function buildBillHtml(bill: Bill, exchangeHistory: ExchangeHistoryEntry[]) {
       : null;
   const discountLabel =
     discountPct != null && discountPct > 0 ? `Discount (${discountPct}%)` : "Discount";
-  const paidState = bill.payment_status === "PAID";
-
   const itemRows = bill.items
     .map(
       (i) => `
@@ -116,19 +115,7 @@ function buildBillHtml(bill: Bill, exchangeHistory: ExchangeHistoryEntry[]) {
         .td { padding: 4px 2px; font-size: 12px; }
         .td.qty, .td.price, .td.total { text-align: right; }
         .td.name { width: 45%; }
-        .paid-stamp {
-          margin: 16px auto 0;
-          border: 3px solid ${paidState ? "#2E8B57" : "#9B111E"};
-          color: ${paidState ? "#2E8B57" : "#9B111E"};
-          padding: 6px 22px;
-          border-radius: 8px;
-          display: inline-block;
-          font-weight: 800;
-          letter-spacing: 4px;
-          font-size: 20px;
-          transform: rotate(-6deg);
-        }
-        .stamp-wrap { text-align: center; margin-top: 12px; }
+        .paid-stamp { display: none; }
         .thanks {
           text-align: center;
           margin-top: 20px;
@@ -186,10 +173,6 @@ function buildBillHtml(bill: Bill, exchangeHistory: ExchangeHistoryEntry[]) {
         <div class="row"><span class="k">Cash</span><span class="v">${formatINRPlain(bill.cash_amount)}</span></div>
         <div class="row"><span class="k">UPI</span><span class="v">${formatINRPlain(bill.upi_amount)}</span></div>
 
-        <div class="stamp-wrap">
-          <div class="paid-stamp">${escHtml(bill.payment_status)}</div>
-        </div>
-
         <div class="thanks">Thank you for supporting us</div>
       </div>
     </body>
@@ -241,44 +224,66 @@ export default function InvoiceScreen() {
       const html = buildBillHtml(bill, exchangeHistory);
 
       if (Platform.OS === "web") {
-        // Web: open a printable window; user can Save as PDF.
-        const w = window.open("", "_blank");
-        if (w) {
-          w.document.open();
-          w.document.write(html);
-          w.document.close();
-          setTimeout(() => {
-            try {
-              w.focus();
-              w.print();
-            } catch {
-              /* noop */
-            }
-          }, 350);
+        // Web: open a printable window with only the bill; browser's
+        // print dialog lets user "Save as PDF" or send to any printer.
+        // Popup blockers may require the user to click again the first time.
+        const w = window.open("", "_blank", "width=420,height=800");
+        if (!w) {
+          setShareError("Please allow pop-ups for this site to share the bill.");
+          return;
         }
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+        // Give the doc a tick to lay out, then trigger print.
+        setTimeout(() => {
+          try {
+            w.focus();
+            w.print();
+          } catch {
+            /* noop */
+          }
+        }, 400);
         return;
       }
 
-      // Native: generate PDF in cache dir and open the OS share sheet
-      // directly so the user can send via WhatsApp / Mail / Airdrop / etc.
-      // without any explicit "download / save" step first.
-      const { uri } = await Print.printToFileAsync({
-        html,
-        base64: false,
-      });
+      // Native: render to PDF, then rename so the share sheet shows a
+      // human-readable filename (WhatsApp/Mail rely on the file name).
+      const printed = await Print.printToFileAsync({ html, base64: false });
+      const targetUri =
+        (FileSystem as any).cacheDirectory + `Invoice_${bill.bill_number}.pdf`;
+      try {
+        // moveAsync may fail if the target already exists — delete first.
+        try {
+          await (FileSystem as any).deleteAsync(targetUri, { idempotent: true });
+        } catch {
+          /* noop */
+        }
+        await (FileSystem as any).moveAsync({ from: printed.uri, to: targetUri });
+      } catch {
+        // Fall back to sharing the auto-generated path directly.
+      }
+      const finalUri =
+        (await (FileSystem as any)
+          .getInfoAsync?.(targetUri)
+          .then((i: any) => (i?.exists ? targetUri : printed.uri))
+          .catch(() => printed.uri)) || printed.uri;
 
       const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(uri, {
-          mimeType: "application/pdf",
-          dialogTitle: `Invoice ${bill.bill_number}`,
-          UTI: "com.adobe.pdf",
-        });
-      } else {
-        setShareError("Sharing is not available on this device");
+      if (!canShare) {
+        setShareError(
+          "Sharing isn't available on this device. Try again from a build with sharing enabled."
+        );
+        return;
       }
+      await Sharing.shareAsync(finalUri, {
+        mimeType: "application/pdf",
+        dialogTitle: `Invoice ${bill.bill_number}`,
+        UTI: "com.adobe.pdf",
+      });
     } catch (e: any) {
-      setShareError(e?.message || "Failed to share invoice");
+      // Surface the real error to the UI so the user can report it.
+      setShareError(e?.message || String(e) || "Failed to share invoice");
     } finally {
       setSharing(false);
     }
@@ -380,25 +385,6 @@ export default function InvoiceScreen() {
             <Row k="Cash" v={formatINRPlain(bill.cash_amount)} />
             <Row k="UPI" v={formatINRPlain(bill.upi_amount)} />
 
-            <View style={[styles.dash, { borderColor: "#000" }]} />
-            <View
-              testID="invoice-status"
-              style={[
-                styles.paidStamp,
-                { borderColor: bill.payment_status === "PAID" ? "#2E8B57" : "#9B111E" },
-              ]}
-            >
-              <Text
-                style={{
-                  color: bill.payment_status === "PAID" ? "#2E8B57" : "#9B111E",
-                  fontWeight: "800",
-                  letterSpacing: 4,
-                  fontSize: 22,
-                }}
-              >
-                {bill.payment_status}
-              </Text>
-            </View>
             <Text style={styles.thanks} testID="thankyou-text">
               Thank you for supporting us
             </Text>
@@ -504,15 +490,6 @@ const styles = StyleSheet.create({
   th: { color: "#333", fontWeight: "700", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 },
   tr: { flexDirection: "row", paddingVertical: 4 },
   td: { color: RECEIPT_INK, fontSize: 12 },
-  paidStamp: {
-    alignSelf: "center",
-    borderWidth: 3,
-    paddingHorizontal: 22,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginTop: 12,
-    transform: [{ rotate: "-6deg" }],
-  },
   thanks: {
     textAlign: "center",
     color: RECEIPT_INK,
