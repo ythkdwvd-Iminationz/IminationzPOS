@@ -14,11 +14,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, InventoryItem, CustomerInfo, logout } from "@/src/api/client";
+import { api, InventoryItem, CustomerInfo, logout, settingsApi, BillingConfig, DiscountType } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useDraftBilling } from "@/src/draft/useDraftBilling";
 import { DraftCartLine } from "@/src/draft/draftBillingStorage";
 import { useRole } from "@/src/hooks/use-role";
+
+const DEFAULT_CFG: BillingConfig = {
+  discount_type: "percent",
+  discount_value: 10,
+  discount_min_order: 699,
+};
 
 // Display-only rounding: 120.5+ -> 121, 120.4 and below -> 120 (standard Math.round)
 const fmt = (n: number) => formatINRPlain(Math.round(n));
@@ -32,6 +38,7 @@ export default function BillingScreen() {
   const router = useRouter();
   const { role } = useRole();
   const isEmployee = role === "employee";
+  const isOwner = role === "owner";
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -45,6 +52,15 @@ export default function BillingScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Discount config (configurable)
+  const [billingCfg, setBillingCfg] = useState<BillingConfig>(DEFAULT_CFG);
+  const [cfgModalOpen, setCfgModalOpen] = useState(false);
+  const [tmpDiscType, setTmpDiscType] = useState<DiscountType>("percent");
+  const [tmpDiscValue, setTmpDiscValue] = useState("10");
+  const [tmpDiscMin, setTmpDiscMin] = useState("699");
+  const [savingCfg, setSavingCfg] = useState(false);
+  const [cfgError, setCfgError] = useState<string | null>(null);
 
   // Customer details modal state
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
@@ -83,8 +99,12 @@ export default function BillingScreen() {
 
   const load = useCallback(async () => {
     try {
-      const res = await api.listInventory();
+      const [res, cfg] = await Promise.all([
+        api.listInventory(),
+        settingsApi.getBillingConfig().catch(() => DEFAULT_CFG),
+      ]);
       setInventory(res);
+      setBillingCfg(cfg);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -163,7 +183,14 @@ export default function BillingScreen() {
 
   const { gross, discount, finalAmount, paid, payable, isValid, status } = useMemo(() => {
     const gross = cart.reduce((s, l) => s + l.inv.price * l.qty, 0);
-    const discount = gross > 699 ? Math.round(gross * 0.1 * 100) / 100 : 0;
+    let discount = 0;
+    if (gross > billingCfg.discount_min_order) {
+      if (billingCfg.discount_type === "flat") {
+        discount = Math.min(Math.round(billingCfg.discount_value * 100) / 100, gross);
+      } else {
+        discount = Math.round(gross * (billingCfg.discount_value / 100) * 100) / 100;
+      }
+    }
     // Round to whole rupees here so this matches exactly what's displayed (fmt() also rounds).
     // Without this, the displayed "Final" could show e.g. ₹121 while the real value used for
     // validation is 120.5x, making Cash+UPI never exactly match and Complete Bill stay disabled.
@@ -182,7 +209,53 @@ export default function BillingScreen() {
       isValid,
       status: isValid ? "PAID" : "DRAFT",
     };
-  }, [cart, cashAmount, upiAmount]);
+  }, [cart, cashAmount, upiAmount, billingCfg]);
+
+  const discountLabel =
+    billingCfg.discount_type === "flat"
+      ? `₹${Math.round(billingCfg.discount_value)} OFF`
+      : `${billingCfg.discount_value}% OFF`;
+
+  const openCfgModal = () => {
+    setTmpDiscType(billingCfg.discount_type);
+    setTmpDiscValue(String(billingCfg.discount_value));
+    setTmpDiscMin(String(billingCfg.discount_min_order));
+    setCfgError(null);
+    setCfgModalOpen(true);
+  };
+
+  const saveCfg = async () => {
+    setCfgError(null);
+    const val = parseFloat(tmpDiscValue || "0");
+    const min = parseFloat(tmpDiscMin || "0");
+    if (isNaN(val) || val < 0) {
+      setCfgError("Discount value must be 0 or more");
+      return;
+    }
+    if (tmpDiscType === "percent" && val > 100) {
+      setCfgError("Percentage cannot exceed 100");
+      return;
+    }
+    if (isNaN(min) || min < 0) {
+      setCfgError("Minimum order must be 0 or more");
+      return;
+    }
+    setSavingCfg(true);
+    try {
+      const next: BillingConfig = {
+        discount_type: tmpDiscType,
+        discount_value: val,
+        discount_min_order: min,
+      };
+      await settingsApi.updateBillingConfig(next);
+      setBillingCfg(next);
+      setCfgModalOpen(false);
+    } catch (e: any) {
+      setCfgError(e.message);
+    } finally {
+      setSavingCfg(false);
+    }
+  };
 
   const onCashChange = (val: string) => {
     setCashAmount(val);
@@ -403,6 +476,15 @@ export default function BillingScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>New Bill</Text>
           <View style={styles.headerBtns}>
+            {isOwner && (
+              <Pressable
+                testID="billing-config-button"
+                onPress={openCfgModal}
+                style={styles.resetBtn}
+              >
+                <Ionicons name="settings-outline" size={18} color={theme.color.onSurface} />
+              </Pressable>
+            )}
             <Pressable testID="reset-bill" onPress={reset} style={styles.resetBtn}>
               <Ionicons name="refresh" size={18} color={theme.color.onSurface} />
             </Pressable>
@@ -539,7 +621,7 @@ export default function BillingScreen() {
           {discount > 0 && (
             <View style={styles.summaryRow}>
               <View style={styles.discountTag}>
-                <Text style={styles.discountTagText}>10% OFF</Text>
+                <Text style={styles.discountTagText}>{discountLabel}</Text>
               </View>
               <Text style={[styles.summaryValue, { color: theme.color.warning }]}>
                 -{fmt(discount)}
@@ -881,6 +963,142 @@ export default function BillingScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* Billing config modal (owner only) */}
+        {isOwner && (
+          <Modal
+            visible={cfgModalOpen}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setCfgModalOpen(false)}
+          >
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              style={{ flex: 1, justifyContent: "flex-end" }}
+            >
+              <View style={styles.customerModalBackdrop}>
+                <View style={styles.customerModalContent}>
+                  <View style={styles.customerModalHeader}>
+                    <Text style={styles.customerModalTitle}>Discount Settings</Text>
+                    <Pressable
+                      testID="close-cfg-modal"
+                      onPress={() => setCfgModalOpen(false)}
+                      disabled={savingCfg}
+                    >
+                      <Ionicons name="close" size={24} color={theme.color.onSurface} />
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.customerModalBody}>
+                    <Text style={styles.label}>Discount Type</Text>
+                    <View style={styles.segmented}>
+                      <Pressable
+                        testID="disc-type-percent"
+                        onPress={() => setTmpDiscType("percent")}
+                        style={[
+                          styles.segBtn,
+                          tmpDiscType === "percent" && styles.segBtnActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.segBtnText,
+                            tmpDiscType === "percent" && styles.segBtnTextActive,
+                          ]}
+                        >
+                          Percentage (%)
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        testID="disc-type-flat"
+                        onPress={() => setTmpDiscType("flat")}
+                        style={[
+                          styles.segBtn,
+                          tmpDiscType === "flat" && styles.segBtnActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.segBtnText,
+                            tmpDiscType === "flat" && styles.segBtnTextActive,
+                          ]}
+                        >
+                          Flat (₹)
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    <Text style={[styles.label, { marginTop: theme.spacing.lg }]}>
+                      {tmpDiscType === "percent" ? "Discount %" : "Discount Amount (₹)"}
+                    </Text>
+                    <TextInput
+                      testID="disc-value-input"
+                      value={tmpDiscValue}
+                      onChangeText={setTmpDiscValue}
+                      keyboardType="decimal-pad"
+                      placeholder={tmpDiscType === "percent" ? "10" : "100"}
+                      placeholderTextColor={theme.color.onSurfaceTertiary}
+                      style={styles.input}
+                    />
+
+                    <Text style={[styles.label, { marginTop: theme.spacing.lg }]}>
+                      Minimum Order Amount (₹) — discount applies when gross exceeds this
+                    </Text>
+                    <TextInput
+                      testID="disc-min-input"
+                      value={tmpDiscMin}
+                      onChangeText={setTmpDiscMin}
+                      keyboardType="decimal-pad"
+                      placeholder="699"
+                      placeholderTextColor={theme.color.onSurfaceTertiary}
+                      style={styles.input}
+                    />
+
+                    <View style={styles.cfgPreview}>
+                      <Text style={styles.cfgPreviewText}>
+                        Preview: Bills above ₹{tmpDiscMin || 0} get{" "}
+                        {tmpDiscType === "percent"
+                          ? `${tmpDiscValue || 0}% off`
+                          : `₹${tmpDiscValue || 0} off`}
+                      </Text>
+                    </View>
+
+                    {cfgError && (
+                      <Text testID="cfg-error" style={[styles.error, { marginTop: theme.spacing.md }]}>
+                        {cfgError}
+                      </Text>
+                    )}
+                  </View>
+
+                  <View style={styles.customerModalActions}>
+                    <Pressable
+                      style={[styles.cancelBtn, savingCfg && { opacity: 0.5 }]}
+                      onPress={() => setCfgModalOpen(false)}
+                      disabled={savingCfg}
+                    >
+                      <Text style={styles.cancelBtnText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      testID="save-cfg-button"
+                      style={[styles.submitBtn, savingCfg && { opacity: 0.5 }]}
+                      onPress={saveCfg}
+                      disabled={savingCfg}
+                    >
+                      {savingCfg ? (
+                        <ActivityIndicator color={theme.color.onBrandPrimary} />
+                      ) : (
+                        <>
+                          <Ionicons name="save" size={18} color={theme.color.onBrandPrimary} />
+                          <Text style={styles.submitBtnText}>Save</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </Modal>
+        )}
 
         {/* Logout confirmation — employee only */}
         {isEmployee && (
@@ -1425,6 +1643,47 @@ const styles = StyleSheet.create({
   submitBtnText: {
     color: theme.color.onBrandPrimary,
     fontSize: 15,
+    fontWeight: "700",
+  },
+  segmented: {
+    flexDirection: "row",
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    padding: 4,
+    gap: 4,
+  },
+  segBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: theme.radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segBtnActive: {
+    backgroundColor: theme.color.brandPrimary,
+  },
+  segBtnText: {
+    color: theme.color.onSurfaceSecondary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  segBtnTextActive: {
+    color: theme.color.onBrandPrimary,
+    fontWeight: "800",
+  },
+  cfgPreview: {
+    marginTop: theme.spacing.lg,
+    padding: theme.spacing.md,
+    backgroundColor: theme.color.brandTertiary,
+    borderColor: theme.color.brandPrimary,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+  },
+  cfgPreviewText: {
+    color: theme.color.brandPrimary,
+    fontSize: 13,
     fontWeight: "700",
   },
 });

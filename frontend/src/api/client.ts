@@ -841,6 +841,154 @@ export async function setToken(_t: string) {
   // no-op — Supabase manages session in storage
 }
 
+// ---------- Billing config (configurable discount) ----------
+export type DiscountType = "percent" | "flat";
+export interface BillingConfig {
+  discount_type: DiscountType;
+  discount_value: number;      // 10 for 10% or 100 for ₹100 flat
+  discount_min_order: number;  // min gross to activate discount
+}
+
+const DEFAULT_BILLING_CONFIG: BillingConfig = {
+  discount_type: "percent",
+  discount_value: 10,
+  discount_min_order: 699,
+};
+
+export const settingsApi = {
+  getBillingConfig: async (): Promise<BillingConfig> => {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("key,value_num,value_text")
+      .in("key", ["discount_type", "discount_value", "discount_min_order"]);
+    if (error) throw new Error(error.message);
+    const cfg = { ...DEFAULT_BILLING_CONFIG };
+    (data || []).forEach((r: any) => {
+      if (r.key === "discount_type") {
+        const t = String(r.value_text || "").toLowerCase();
+        if (t === "flat" || t === "percent") cfg.discount_type = t as DiscountType;
+      } else if (r.key === "discount_value") {
+        const n = Number(r.value_num);
+        if (!isNaN(n) && n >= 0) cfg.discount_value = n;
+      } else if (r.key === "discount_min_order") {
+        const n = Number(r.value_num);
+        if (!isNaN(n) && n >= 0) cfg.discount_min_order = n;
+      }
+    });
+    return cfg;
+  },
+
+  updateBillingConfig: async (cfg: BillingConfig): Promise<void> => {
+    const now = new Date().toISOString();
+    const rows = [
+      { key: "discount_type", value_num: null, value_text: cfg.discount_type, updated_at: now },
+      { key: "discount_value", value_num: cfg.discount_value, value_text: null, updated_at: now },
+      { key: "discount_min_order", value_num: cfg.discount_min_order, value_text: null, updated_at: now },
+    ];
+    const { error } = await supabase
+      .from("app_settings")
+      .upsert(rows, { onConflict: "key" });
+    if (error) throw new Error(error.message);
+  },
+};
+
+// ---------- Damaged items ----------
+export type DamagedStatus = "in_stock" | "sold" | "discarded";
+export interface DamagedItem {
+  id: string;
+  inv_id: string | null;
+  item_id: string;
+  item_name: string;
+  category: string | null;
+  qty: number;
+  unit_price: number;
+  reason: string;
+  status: DamagedStatus;
+  sold_price: number | null;
+  sold_at: string | null;
+  sold_note: string | null;
+  damaged_at: string;
+  damaged_by_email: string | null;
+}
+
+export interface DamagedSummary {
+  in_stock_count: number;
+  in_stock_qty: number;
+  sold_count: number;
+  sold_revenue: number;
+  discarded_count: number;
+  loss_at_cost: number;
+}
+
+export const damagedApi = {
+  list: async (status?: DamagedStatus): Promise<DamagedItem[]> => {
+    let q = supabase.from("damaged_items").select("*").order("damaged_at", { ascending: false });
+    if (status) q = q.eq("status", status);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data || []) as DamagedItem[];
+  },
+
+  summary: async (): Promise<DamagedSummary> => {
+    const { data, error } = await supabase
+      .from("damaged_items")
+      .select("status,qty,sold_price,unit_price");
+    if (error) throw new Error(error.message);
+    const list = data || [];
+    let in_stock_count = 0, in_stock_qty = 0;
+    let sold_count = 0, sold_revenue = 0;
+    let discarded_count = 0, loss_at_cost = 0;
+    list.forEach((r: any) => {
+      if (r.status === "in_stock") {
+        in_stock_count += 1;
+        in_stock_qty += Number(r.qty) || 0;
+      } else if (r.status === "sold") {
+        sold_count += 1;
+        sold_revenue += Number(r.sold_price) || 0;
+      } else if (r.status === "discarded") {
+        discarded_count += 1;
+        loss_at_cost += (Number(r.unit_price) || 0) * (Number(r.qty) || 0);
+      }
+    });
+    return {
+      in_stock_count,
+      in_stock_qty,
+      sold_count,
+      sold_revenue: round2(sold_revenue),
+      discarded_count,
+      loss_at_cost: round2(loss_at_cost),
+    };
+  },
+
+  markDamaged: async (inv_id: string, qty: number, reason: string) => {
+    const { data, error } = await supabase.rpc("mark_damaged", {
+      p_inv_id: inv_id,
+      p_qty: qty,
+      p_reason: reason,
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  sellDamaged: async (id: string, sold_price: number, note: string | null) => {
+    const { data, error } = await supabase.rpc("sell_damaged", {
+      p_damaged_id: id,
+      p_sold_price: sold_price,
+      p_note: note,
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  discardDamaged: async (id: string) => {
+    const { data, error } = await supabase.rpc("discard_damaged", { p_damaged_id: id });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+};
+
+
+
 // ---------- utils ----------
 function sum<T>(arr: T[], f: (t: T) => number) {
   return arr.reduce((s, x) => s + (f(x) || 0), 0);

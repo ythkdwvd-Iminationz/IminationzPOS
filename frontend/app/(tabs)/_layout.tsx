@@ -75,6 +75,16 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="damaged"
+        options={{
+          title: "Damaged",
+          href: isEmployee ? null : "/(tabs)/damaged",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="alert-circle" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="sales"
         options={{
           title: isEmployee ? "Today" : "Sales",
