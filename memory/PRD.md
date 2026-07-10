@@ -35,7 +35,7 @@ Iminationz POS is a mobile-first Expo (React Native) point-of-sale app for a ret
 - POS-style Billing with customer name + mobile, customer recognition badge
 - Inventory CRUD with cost price + low-stock badge
 - Atomic stock deduction via Postgres `create_bill` RPC (single transaction)
-- Discount rule: **10% above ₹699** (unchanged)
+- **Configurable Discount** — discount type (percent or flat), value, and minimum order amount are stored in `app_settings` and editable inline from the Billing screen (owner-only gear icon)
 - Split Cash + UPI with **negative UPI for change return**
 - Bill numbering `BILL-YYYYMMDD-NNN`
 - Sales History with date filters and search
@@ -43,12 +43,14 @@ Iminationz POS is a mobile-first Expo (React Native) point-of-sale app for a ret
 - WhatsApp Daily Closing — pre-filled `wa.me` links for both owners (9044625875 / 8188996721)
 - Excel + CSV exports — generated client-side, open natively in Excel
 - Bills are read-only after PAID (no edit endpoints exist)
+- **Damaged Items Tracker** — owner-only tab. Mark items with reason + qty (stock auto-deducted), then either sell at a custom discount or discard. Loss/recovery summary + full history preserved.
 
 ## Setup (one-time)
 See `/app/memory/SUPABASE_SETUP.md`. TL;DR:
 1. Paste `/app/supabase/schema.sql` into the Supabase SQL Editor → Run.
-2. Auth → Users → Create user `admin@iminationz.app` / `admin123` (auto-confirm).
-3. (Optional) Paste `/app/supabase/migration/import_data.sql` to restore the 10+14 records from the legacy build.
+2. Paste `/app/supabase/migration/billing_config_damaged.sql` → Run (adds configurable discount + damaged_items).
+3. Auth → Users → Create user `admin@iminationz.app` / `admin123` (auto-confirm).
+4. (Optional) Paste `/app/supabase/migration/import_data.sql` to restore the 10+14 records from the legacy build.
 
 ## Security Model
 - The client uses **only** the anon public key (in `/app/frontend/.env`).
