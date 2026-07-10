@@ -190,6 +190,13 @@ async function sharePdfOnWeb(
   bill: Bill,
   exchangeHistory: ExchangeHistoryEntry[]
 ): Promise<void> {
+  // jsPDF's default Helvetica font doesn't include the ₹ Unicode
+  // glyph — it substitutes a broken char (looks like "¹" on Android).
+  // Replace it with "Rs " everywhere in PDF text to keep the receipt
+  // crisp without shipping a custom Unicode font.
+  const money = (n: number) =>
+    formatINRPlain(n).replace(/₹/g, "Rs ").replace(/\s+/g, " ").trim();
+  const asciiSafe = (s: string) => String(s ?? "").replace(/₹/g, "Rs ");
   // Thermal-receipt sized (~80mm wide x auto height). jsPDF units in mm.
   const pageWidth = 80;
   const marginX = 6;
@@ -245,8 +252,8 @@ async function sharePdfOnWeb(
   kv("Date", bill.date);
   kv("Day", bill.day);
   kv("Time", bill.time);
-  if (bill.customer_name) kv("Name", bill.customer_name);
-  if (bill.customer_mobile) kv("Mobile", bill.customer_mobile);
+  if (bill.customer_name) kv("Name", asciiSafe(bill.customer_name));
+  if (bill.customer_mobile) kv("Mobile", asciiSafe(bill.customer_mobile));
   dashed();
 
   doc.setFont("helvetica", "bold");
@@ -261,12 +268,13 @@ async function sharePdfOnWeb(
   bill.items.forEach((it) => {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    const name = it.item_name.length > 20 ? it.item_name.slice(0, 18) + "..." : it.item_name;
+    const rawName = asciiSafe(it.item_name);
+    const name = rawName.length > 20 ? rawName.slice(0, 18) + "..." : rawName;
     doc.text(name, marginX, y);
     doc.text(String(it.qty), marginX + contentWidth * 0.5, y, { align: "right" });
-    doc.text(formatINRPlain(it.price), marginX + contentWidth * 0.72, y, { align: "right" });
+    doc.text(money(it.price), marginX + contentWidth * 0.72, y, { align: "right" });
     doc.setFont("helvetica", "bold");
-    doc.text(formatINRPlain(it.line_total), pageWidth - marginX, y, { align: "right" });
+    doc.text(money(it.line_total), pageWidth - marginX, y, { align: "right" });
     nextLine(5);
   });
 
@@ -282,13 +290,13 @@ async function sharePdfOnWeb(
       doc.text(new Date(ex.exchanged_at).toLocaleString("en-IN"), marginX, y);
       nextLine(4);
       doc.text(
-        `Returned: ${ex.old_item_name} x${ex.old_qty} - ${formatINRPlain(ex.old_line_total)}`,
+        `Returned: ${asciiSafe(ex.old_item_name)} x${ex.old_qty} - ${money(ex.old_line_total)}`,
         marginX,
         y
       );
       nextLine(4);
       doc.text(
-        `Given: ${ex.new_item_name} x${ex.new_qty} - ${formatINRPlain(ex.new_line_total)}`,
+        `Given: ${asciiSafe(ex.new_item_name)} x${ex.new_qty} - ${money(ex.new_line_total)}`,
         marginX,
         y
       );
@@ -296,8 +304,8 @@ async function sharePdfOnWeb(
       doc.setFont("helvetica", "bold");
       const diffTxt =
         ex.price_diff >= 0
-          ? `Customer paid ${formatINRPlain(ex.price_diff)}`
-          : `Refunded ${formatINRPlain(-ex.price_diff)}`;
+          ? `Customer paid ${money(ex.price_diff)}`
+          : `Refunded ${money(-ex.price_diff)}`;
       doc.text(diffTxt, marginX, y);
       nextLine(5);
     });
@@ -309,17 +317,17 @@ async function sharePdfOnWeb(
     bill.gross_amount > 0 && bill.discount > 0
       ? Math.round((bill.discount / bill.gross_amount) * 100)
       : 0;
-  kv("Gross", formatINRPlain(bill.gross_amount));
+  kv("Gross", money(bill.gross_amount));
   if (bill.discount > 0) {
     kv(
       discountPct ? `Discount (${discountPct}%)` : "Discount",
-      `-${formatINRPlain(bill.discount)}`
+      `-${money(bill.discount)}`
     );
   }
-  kv("Final", formatINRPlain(bill.final_amount), true);
+  kv("Final", money(bill.final_amount), true);
   dashed();
-  kv("Cash", formatINRPlain(bill.cash_amount));
-  kv("UPI", formatINRPlain(bill.upi_amount));
+  kv("Cash", money(bill.cash_amount));
+  kv("UPI", money(bill.upi_amount));
 
   nextLine(6);
   centerText("Thank you for supporting us", 11, true);
