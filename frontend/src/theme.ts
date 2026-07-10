@@ -40,8 +40,13 @@ export const theme = {
   },
 };
 
-export const formatINR = (n: number) =>
-  `₹${Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}${n < 0 ? " (return)" : ""}`;
+// Modified: Strictly formats whole numbers without any fractional or decimal logic
+export const formatINR = (n: number) => {
+  const rounded = Math.round(Math.abs(n));
+  return `₹${rounded.toLocaleString("en-IN")}${n < 0 ? " (return)" : ""}`;
+};
 
-export const formatINRPlain = (n: number) =>
-  `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+export const formatINRPlain = (n: number) => {
+  const rounded = Math.round(n);
+  return `₹${rounded.toLocaleString("en-IN")}`;
+};
