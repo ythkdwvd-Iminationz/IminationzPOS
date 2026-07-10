@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 2 — verified two fixes on the Iminationz POS (Expo + Supabase) app. (1) categoryReport() revenue proration logic in /app/frontend/src/api/client.ts is correct: replicated the aggregation into a Node unit-style test with mocked Supabase responses — 8/8 assertions pass (100% discount bill → 0 revenue, 0% discount → full line_total, partial discount prorated, gross=0 safety). (2) Invoice screen (/app/frontend/app/invoice/[id].tsx) verified via static analysis: 'Wear Elegance. Share Kindness.' rendered inside testID='invoice-receipt', 'Thank you for supporting us' bold (fontWeight 900) with testID='thankyou-text', share-button labelled 'Share Bill as PDF' with wrapped try/catch calling window.print() on web and Print.printToFileAsync + Sharing.shareAsync (mimeType application/pdf) on native. Discount label is dynamic — `Discount (${discountPct}%)` in both JSX (line 374) and printed HTML (line 39); no hardcoded '10%'. Zero occurrences of 'Jewellery POS' in the receipt HTML/JSX. (3) Login screen at https://mobile-pos-app-15.preview.emergentagent.com rendered on 390x844 viewport: shows 'Iminationz' + 'Wear Elegance. Share Kindness.' — 'Jewellery POS' and 'Supabase' strings are absent from the DOM. Cannot exercise the authenticated invoice route (email OTP goes to real inbox — no test creds), but the pure JSX/HTML output is verifiable and correct. No functional regressions detected.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "react-native-web (shadow* / pointerEvents deprecations)",
+        "issue": "Non-blocking console warnings persist: '\"shadow*\" style props are deprecated. Use \"boxShadow\"' on login mount, and (from prior iteration) 'props.pointerEvents is deprecated'. Originates from RN core / 3rd-party libs — tracked but not fixed here."
+      },
+      {
+        "component": "/app/frontend/src/api/client.ts",
+        "issue": "formatDisplayDate() at line 655-658 has a copy-paste bug in the months array: index 0 is 'July' (should be 'January'). Any date like '2026-01-XX' will render as 'X July 2026'. Unrelated to the two bugs in this iteration, but flagged for main agent."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/frontend/tests/category_report.test.mjs",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix formatDisplayDate() months array in /app/frontend/src/api/client.ts (line 655): first entry 'July' must be 'January' — currently all January dates display as 'July'.",
+    "Optionally migrate remaining `shadow*` and `pointerEvents` prop usages to their style/boxShadow equivalents to silence RN-web deprecation warnings.",
+    "No action needed on the two targeted bugs — proration logic and invoice PDF share flow are both correctly implemented."
+  ],
+  "critical_code_review_comments": [
+    "client.ts categoryReport(): proration uses `ratio = gross > 0 ? finalAmt / gross : 1`. Correct behaviour for gross=0 edge case (falls back to raw line_total, which will also be 0 in practice since a zero-gross bill can only contain zero-total items).",
+    "invoice/[id].tsx onSharePdf: sharing state is properly guarded (`if (!bill || sharing) return`), errors are surfaced via `shareError` testID='share-error', and Print/Sharing failures are caught. Web branch uses `window.open` + `print()` with a 350ms delay before printing — good.",
+    "invoice/[id].tsx uses `Math.round((bill.discount / bill.gross_amount) * 100)` for the % — for e.g. discount=150 gross=1000 this renders 'Discount (15%)' as expected.",
+    "client.ts formatDisplayDate months array bug (see react_native_issues) is unrelated to this iteration but will produce wrong labels for any January transactions."
+  ],
+  "updated_files": [
+    "/app/frontend/tests/category_report.test.mjs (new — 8 assertions, all pass)",
+    "/app/test_reports/iteration_2.json (this report)"
+  ],
+  "success_rate": { "backend": "not tested (frontend-only iteration)", "frontend": "100% on the two targeted bugs" },
+  "seed_data_creation": "None — no DB writes. Category report tested via mocked Supabase responses; login screen tested via public preview URL.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Two targeted bugs are FIXED and verified. Unit test at /app/frontend/tests/category_report.test.mjs can be re-run any time with `node /app/frontend/tests/category_report.test.mjs`. The invoice screen cannot be exercised end-to-end without a real Supabase OTP inbox; verify via static analysis or by having the user log in on the preview and navigate to /invoice/[id]. Preview URL: https://mobile-pos-app-15.preview.emergentagent.com. Separate bug found in client.ts formatDisplayDate months array (line 655 'July' should be 'January') — main agent should fix.",
+  "rca_of_issue": "N/A — this iteration confirmed fixes rather than diagnosing failures. Proration logic: `ratio = final_amount / gross_amount` applied per line — mathematically correct because sum(line_totals) == gross_amount for every bill, so sum(line_total * ratio) == gross * (final/gross) == final. Invoice share flow: web branch avoids expo-print (which requires native module) and uses browser's `window.print()`; native branch uses expo-print + expo-sharing to hand off a PDF file URI to the OS share sheet directly, satisfying the 'real PDF via native share sheet' requirement."
+}
