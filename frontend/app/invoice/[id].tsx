@@ -14,6 +14,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
+import { jsPDF } from "jspdf";
 import { api, Bill, ExchangeHistoryEntry } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 
@@ -181,6 +182,177 @@ function buildBillHtml(bill: Bill, exchangeHistory: ExchangeHistoryEntry[]) {
   `;
 }
 
+// Renders the bill directly to a jsPDF document (text-based, sharp,
+// works offline). Then hands the resulting Blob to the OS share sheet
+// via the Web Share API. Falls back to a download link if the browser
+// doesn't advertise navigator.canShare({ files }).
+async function sharePdfOnWeb(
+  bill: Bill,
+  exchangeHistory: ExchangeHistoryEntry[]
+): Promise<void> {
+  // Thermal-receipt sized (~80mm wide x auto height). jsPDF units in mm.
+  const pageWidth = 80;
+  const marginX = 6;
+  const contentWidth = pageWidth - marginX * 2;
+  const baseHeight = 140;
+  const perLineHeight = 5;
+  const estimatedHeight =
+    baseHeight +
+    bill.items.length * perLineHeight +
+    exchangeHistory.length * 16;
+  const doc = new jsPDF({
+    unit: "mm",
+    format: [pageWidth, Math.max(140, estimatedHeight)],
+  });
+
+  let y = 10;
+  const nextLine = (n = 5) => (y += n);
+  const centerText = (text: string, size: number, bold = false) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(size);
+    doc.text(text, pageWidth / 2, y, { align: "center" });
+  };
+  const leftText = (text: string, opts?: { bold?: boolean; size?: number; x?: number }) => {
+    doc.setFont("helvetica", opts?.bold ? "bold" : "normal");
+    doc.setFontSize(opts?.size ?? 8);
+    doc.text(text, opts?.x ?? marginX, y);
+  };
+  const rightText = (text: string, opts?: { bold?: boolean; size?: number }) => {
+    doc.setFont("helvetica", opts?.bold ? "bold" : "normal");
+    doc.setFontSize(opts?.size ?? 8);
+    doc.text(text, pageWidth - marginX, y, { align: "right" });
+  };
+  const dashed = () => {
+    doc.setDrawColor(180);
+    doc.setLineDashPattern([0.6, 0.6], 0);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    doc.setLineDashPattern([], 0);
+    nextLine(3);
+  };
+  const kv = (k: string, v: string, big = false) => {
+    leftText(k, { size: big ? 10 : 8, bold: big });
+    rightText(v, { size: big ? 12 : 8, bold: big });
+    nextLine(big ? 6 : 5);
+  };
+
+  centerText("IMINATIONZ", 14, true);
+  nextLine(5);
+  centerText("Wear Elegance. Share Kindness.", 8);
+  nextLine(4);
+  dashed();
+
+  kv("Bill No", bill.bill_number);
+  kv("Date", bill.date);
+  kv("Day", bill.day);
+  kv("Time", bill.time);
+  if (bill.customer_name) kv("Name", bill.customer_name);
+  if (bill.customer_mobile) kv("Mobile", bill.customer_mobile);
+  dashed();
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.text("Item", marginX, y);
+  doc.text("Qty", marginX + contentWidth * 0.5, y, { align: "right" });
+  doc.text("Rate", marginX + contentWidth * 0.72, y, { align: "right" });
+  doc.text("Total", pageWidth - marginX, y, { align: "right" });
+  nextLine(4);
+  dashed();
+
+  bill.items.forEach((it) => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    const name = it.item_name.length > 20 ? it.item_name.slice(0, 18) + "..." : it.item_name;
+    doc.text(name, marginX, y);
+    doc.text(String(it.qty), marginX + contentWidth * 0.5, y, { align: "right" });
+    doc.text(formatINRPlain(it.price), marginX + contentWidth * 0.72, y, { align: "right" });
+    doc.setFont("helvetica", "bold");
+    doc.text(formatINRPlain(it.line_total), pageWidth - marginX, y, { align: "right" });
+    nextLine(5);
+  });
+
+  if (exchangeHistory.length > 0) {
+    dashed();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text("EXCHANGE RECORD", marginX, y);
+    nextLine(5);
+    exchangeHistory.forEach((ex) => {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(new Date(ex.exchanged_at).toLocaleString("en-IN"), marginX, y);
+      nextLine(4);
+      doc.text(
+        `Returned: ${ex.old_item_name} x${ex.old_qty} - ${formatINRPlain(ex.old_line_total)}`,
+        marginX,
+        y
+      );
+      nextLine(4);
+      doc.text(
+        `Given: ${ex.new_item_name} x${ex.new_qty} - ${formatINRPlain(ex.new_line_total)}`,
+        marginX,
+        y
+      );
+      nextLine(4);
+      doc.setFont("helvetica", "bold");
+      const diffTxt =
+        ex.price_diff >= 0
+          ? `Customer paid ${formatINRPlain(ex.price_diff)}`
+          : `Refunded ${formatINRPlain(-ex.price_diff)}`;
+      doc.text(diffTxt, marginX, y);
+      nextLine(5);
+    });
+  }
+
+  dashed();
+
+  const discountPct =
+    bill.gross_amount > 0 && bill.discount > 0
+      ? Math.round((bill.discount / bill.gross_amount) * 100)
+      : 0;
+  kv("Gross", formatINRPlain(bill.gross_amount));
+  if (bill.discount > 0) {
+    kv(
+      discountPct ? `Discount (${discountPct}%)` : "Discount",
+      `-${formatINRPlain(bill.discount)}`
+    );
+  }
+  kv("Final", formatINRPlain(bill.final_amount), true);
+  dashed();
+  kv("Cash", formatINRPlain(bill.cash_amount));
+  kv("UPI", formatINRPlain(bill.upi_amount));
+
+  nextLine(6);
+  centerText("Thank you for supporting us", 11, true);
+
+  const blob = doc.output("blob") as Blob;
+  const filename = `Invoice_${bill.bill_number}.pdf`;
+  const file = new File([blob], filename, { type: "application/pdf" });
+
+  const nav: any = typeof navigator !== "undefined" ? navigator : {};
+  if (
+    typeof nav.canShare === "function" &&
+    nav.canShare({ files: [file] }) &&
+    typeof nav.share === "function"
+  ) {
+    await nav.share({
+      files: [file],
+      title: `Invoice ${bill.bill_number}`,
+      text: `Invoice ${bill.bill_number} - Iminationz`,
+    });
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+
 export default function InvoiceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -222,39 +394,21 @@ export default function InvoiceScreen() {
     setShareError(null);
     setSharing(true);
     try {
-      const html = buildBillHtml(bill, exchangeHistory);
-
       if (Platform.OS === "web") {
-        // Web: open a printable window with only the bill; browser's
-        // print dialog lets user "Save as PDF" or send to any printer.
-        // Popup blockers may require the user to click again the first time.
-        const w = window.open("", "_blank", "width=420,height=800");
-        if (!w) {
-          setShareError("Please allow pop-ups for this site to share the bill.");
-          return;
-        }
-        w.document.open();
-        w.document.write(html);
-        w.document.close();
-        // Give the doc a tick to lay out, then trigger print.
-        setTimeout(() => {
-          try {
-            w.focus();
-            w.print();
-          } catch {
-            /* noop */
-          }
-        }, 400);
+        // Web: generate a real PDF blob with jsPDF and hand it to the
+        // native OS share sheet via the Web Share API. Falls back to
+        // download if the browser can't share files.
+        await sharePdfOnWeb(bill, exchangeHistory);
         return;
       }
 
       // Native: render to PDF, then rename so the share sheet shows a
       // human-readable filename (WhatsApp/Mail rely on the file name).
+      const html = buildBillHtml(bill, exchangeHistory);
       const printed = await Print.printToFileAsync({ html, base64: false });
       const targetUri =
         (FileSystem as any).cacheDirectory + `Invoice_${bill.bill_number}.pdf`;
       try {
-        // moveAsync may fail if the target already exists — delete first.
         try {
           await (FileSystem as any).deleteAsync(targetUri, { idempotent: true });
         } catch {
