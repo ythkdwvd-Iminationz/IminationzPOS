@@ -653,12 +653,12 @@ export function formatDisplayDate(dateStr: string | null | undefined): string {
   if (!year || !month || !day) return dateStr;
 
   const months = [
-    "July", "February", "March", "April", "May", "June",
+    "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
   ];
   
   const monthName = months[parseInt(month, 10) - 1] || month;
-  return `${parseInt(day, 10)} ${monthName} ${year}`; // Outputs exactly: 8 July 2026
+  return `${parseInt(day, 10)} ${monthName} ${year}`; // e.g. 8 February 2026
 }
 
 // ---------- Updated Expenses API Surface ----------
