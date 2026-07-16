@@ -14,7 +14,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
-import { jsPDF } from "jspdf";
 import { api, Bill, ExchangeHistoryEntry } from "@/src/api/client";
 import { theme, formatINRPlain } from "@/src/theme";
 
@@ -191,6 +190,9 @@ async function sharePdfOnWeb(
   bill: Bill,
   exchangeHistory: ExchangeHistoryEntry[]
 ): Promise<void> {
+  // jspdf is a large lib only needed for this one PDF-sharing path — load
+  // it on demand instead of bundling it into the app's initial JS load.
+  const { jsPDF } = await import("jspdf");
   // jsPDF's default Helvetica font doesn't include the ₹ Unicode
   // glyph — it substitutes a broken char (looks like "¹" on Android).
   // Replace it with "Rs " everywhere in PDF text to keep the receipt

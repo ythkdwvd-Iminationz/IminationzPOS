@@ -1,4 +1,3 @@
-import * as XLSX from "xlsx";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
@@ -7,13 +6,16 @@ import { api, Bill, InventoryItem } from "@/src/api/client";
 const todayStamp = () =>
   new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14);
 
-function bookFromSheets(sheets: { name: string; rows: any[][] }[]) {
+// xlsx is a large lib only needed for the Excel export actions — load it
+// on demand instead of bundling it into the app's initial JS load.
+async function bookFromSheets(sheets: { name: string; rows: any[][] }[]) {
+  const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
   for (const s of sheets) {
     const ws = XLSX.utils.aoa_to_sheet(s.rows);
     XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
   }
-  return wb;
+  return { wb, XLSX };
 }
 
 async function downloadOrShare(filename: string, base64: string, mime: string) {
@@ -111,7 +113,7 @@ export async function exportSalesXlsx(
 ) {
   const bills = await api.listBills({ filter, start_date: start, end_date: end });
   const { salesRows, lineRows, summary } = salesSheets(bills);
-  const wb = bookFromSheets([
+  const { wb, XLSX } = await bookFromSheets([
     { name: "Sales", rows: salesRows },
     { name: "Line Items", rows: lineRows },
     { name: "Summary", rows: summary },
@@ -155,7 +157,7 @@ function inventoryRows(items: InventoryItem[]) {
 
 export async function exportInventoryXlsx() {
   const items = await api.listInventory();
-  const wb = bookFromSheets([{ name: "Inventory", rows: inventoryRows(items) }]);
+  const { wb, XLSX } = await bookFromSheets([{ name: "Inventory", rows: inventoryRows(items) }]);
   const base64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
   await downloadOrShare(
     `iminationz_inventory_${todayStamp()}.xlsx`,

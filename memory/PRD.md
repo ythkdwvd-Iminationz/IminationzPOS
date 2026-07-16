@@ -89,6 +89,17 @@ Original repo: `https://github.com/ythkdwvd-Iminationz/IminationzPOS` (imported 
 
 **Known blocker (pre-existing, confirmed still present, out of scope for this session):** Supabase OTP login for `admin@iminationz.app` returns `422 otp_disabled — "Signups not allowed for otp"` (verified via direct Auth API call). This blocks any UI login, so full in-app testing (by both the agent and the user) is stuck at the login screen until the user re-provisions/confirms the account in Supabase → Authentication → Users.
 
+## What's been implemented — 2026-02 session (cont'd): Initial load performance
+**Problem reported by user:** App feels very slow on initial load (opening the preview link).
+
+**Root cause:** `xlsx` and `jspdf` (two very large libraries, used only for Excel export on Reports and PDF-share on Invoice) were imported eagerly at the top of `src/utils/export.ts` and `app/invoice/[id].tsx`. Because Expo Router eagerly requires every route file to build the route tree at boot, both libraries' module-init code ran on every app start even though most sessions never touch export/PDF-share.
+
+**Fix delivered:**
+- `src/utils/export.ts`: `xlsx` is now dynamically imported (`await import("xlsx")`) inside `bookFromSheets()`, only executed when an Excel export button is actually pressed.
+- `app/invoice/[id].tsx`: `jspdf` is now dynamically imported inside `sharePdfOnWeb()`, only executed when sharing a PDF receipt on web.
+- Confirmed `date-fns` and `dayjs` (both declared in package.json) are unused anywhere in the codebase — not touched (removing them is a package.json change with no runtime bundle impact since nothing imports them).
+- Note for the user: some of the "initial load" time is Metro's dev-mode bundling (unminified, ~1400+ modules) which is a preview-environment characteristic — a published/production build is minified and loads faster. This session's fix reduces JS execution work at boot; it does not shrink the dev bundle's network download size (that would require touching `metro.config.js`, which is off-limits).
+
 ## Prioritized backlog / next steps
 - **P0:** Fix the Supabase OTP login blocker (`otp_disabled` for admin@iminationz.app) — re-create/confirm the user in Supabase Authentication so the app can actually be logged into and tested.
 - **P0:** User must run `whole_numbers.sql` (if not already) then `custom_pricing.sql` in Supabase SQL Editor.
