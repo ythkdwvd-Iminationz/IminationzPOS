@@ -100,6 +100,14 @@ Original repo: `https://github.com/ythkdwvd-Iminationz/IminationzPOS` (imported 
 - Confirmed `date-fns` and `dayjs` (both declared in package.json) are unused anywhere in the codebase — not touched (removing them is a package.json change with no runtime bundle impact since nothing imports them).
 - Note for the user: some of the "initial load" time is Metro's dev-mode bundling (unminified, ~1400+ modules) which is a preview-environment characteristic — a published/production build is minified and loads faster. This session's fix reduces JS execution work at boot; it does not shrink the dev bundle's network download size (that would require touching `metro.config.js`, which is off-limits).
 
+## What's been implemented — 2026-02 session (cont'd): Tab-switch caching
+**Problem reported by user:** Switching tabs (Billing, Inventory, Damaged) always re-fetches the full inventory list from Supabase, causing a flash/wait every time.
+
+**Fix delivered:** New shared in-memory cache `src/api/cache.ts` (`getInventory()` / `peekInventory()` / `invalidateInventory()`, 30s TTL). Wired into:
+- `inventory.tsx`, `damaged.tsx`, `billing.tsx`, `sales.tsx` (exchange picker) — each now paints the last-known inventory list instantly on tab focus (via `peekInventory()`) instead of a blank/loading state, then silently revalidates in the background if the cache is stale (>30s) or the screen was pull-to-refreshed.
+- Added pull-to-refresh (`RefreshControl`) to Inventory's list (previously missing); Damaged's existing pull-to-refresh now force-bypasses the cache.
+- Any stock-changing action — Inventory create/update, Damaged "Mark as Damaged", Billing "Complete Bill", Sales "Exchange Item" — calls `invalidateInventory()` right after success so every other screen fetches fresh stock on its next focus/refresh instead of showing stale numbers.
+
 ## Prioritized backlog / next steps
 - **P0:** Fix the Supabase OTP login blocker (`otp_disabled` for admin@iminationz.app) — re-create/confirm the user in Supabase Authentication so the app can actually be logged into and tested.
 - **P0:** User must run `whole_numbers.sql` (if not already) then `custom_pricing.sql` in Supabase SQL Editor.

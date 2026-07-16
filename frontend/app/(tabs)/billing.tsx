@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { api, InventoryItem, CustomerInfo, logout, settingsApi, BillingConfig, DiscountType } from "@/src/api/client";
+import { getInventory, peekInventory, invalidateInventory } from "@/src/api/cache";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useDraftBilling } from "@/src/draft/useDraftBilling";
 import { DraftCartLine } from "@/src/draft/draftBillingStorage";
@@ -52,8 +53,8 @@ export default function BillingScreen() {
   const { role, loading: roleLoading } = useRole();
   const isEmployee = role === "employee";
   const isOwner = role === "owner";
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [inventory, setInventory] = useState<InventoryItem[]>(() => peekInventory() || []);
+  const [loading, setLoading] = useState(() => peekInventory() === null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerMobile, setCustomerMobile] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -104,10 +105,12 @@ export default function BillingScreen() {
     }
   };
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     try {
+      const cached = peekInventory();
+      if (cached && !force) setInventory(cached);
       const [res, cfg] = await Promise.all([
-        api.listInventory(),
+        getInventory(force),
         settingsApi.getBillingConfig().catch(() => DEFAULT_CFG),
       ]);
       setInventory(res);
@@ -475,7 +478,8 @@ export default function BillingScreen() {
       reset();
       setCustomerModalOpen(false);
       router.push(`/invoice/${bill.id}`);
-      load();
+      invalidateInventory(); // createBill deducts inventory.current_qty server-side
+      load(true);
     } catch (e: any) {
       setError(e.message);
     } finally {

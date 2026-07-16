@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { api, Bill, InventoryItem } from "@/src/api/client";
+import { getInventory, invalidateInventory } from "@/src/api/cache";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useRole } from "@/src/hooks/use-role";
 
@@ -99,7 +100,7 @@ export default function SalesScreen() {
   const openExchange = useCallback(async (bill: Bill) => {
     setExchangeBill(bill);
     try {
-      const inv = await api.listInventory();
+      const inv = await getInventory();
       setInventory(inv);
     } catch {
       // ignore
@@ -635,6 +636,7 @@ function ExchangeModal({
         cash_amount: parseInt(cashAmount, 10) || 0,
         upi_amount: parseInt(upiAmount, 10) || 0,
       });
+      invalidateInventory(); // exchangeBillItem adjusts inventory.current_qty server-side
       resetAll();
       onComplete();
     } catch (e: any) {

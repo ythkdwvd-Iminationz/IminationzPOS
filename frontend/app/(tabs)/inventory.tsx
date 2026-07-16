@@ -11,11 +11,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { api, InventoryItem } from "@/src/api/client";
+import { getInventory, peekInventory, invalidateInventory } from "@/src/api/cache";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useFormDraft } from "@/src/draft/useFormDraft";
 
@@ -48,8 +50,9 @@ const EMPTY: FormState = {
 const DRAFT_KEY = "iminationz:inventory:draft:v1";
 
 export default function InventoryScreen() {
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<InventoryItem[]>(() => peekInventory() || []);
+  const [loading, setLoading] = useState(() => peekInventory() === null);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("All");
   const [modalOpen, setModalOpen] = useState(false);
@@ -63,14 +66,19 @@ export default function InventoryScreen() {
   const draft = useFormDraft<InventoryDraft>(DRAFT_KEY);
   const [draftHydrated, setDraftHydrated] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
+    // Show cached data instantly (no spinner) while we revalidate in the
+    // background — only the very first load with an empty cache spinners.
+    const cached = peekInventory();
+    if (cached && !force) setItems(cached);
     try {
-      const res = await api.listInventory();
+      const res = await getInventory(force);
       setItems(res);
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -199,7 +207,8 @@ export default function InventoryScreen() {
       }
       setModalOpen(false);
       await draft.clearDraft();
-      load();
+      invalidateInventory();
+      load(true);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -273,6 +282,17 @@ export default function InventoryScreen() {
         <FlatList
           data={filtered}
           keyExtractor={(it) => it.id}
+          refreshControl={
+            <RefreshControl
+              testID="inventory-refresh-control"
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                load(true);
+              }}
+              tintColor={theme.color.brandPrimary}
+            />
+          }
           contentContainerStyle={{ padding: theme.spacing.lg, paddingTop: theme.spacing.sm }}
           ListEmptyComponent={
             <View style={{ alignItems: "center", paddingTop: 48 }}>

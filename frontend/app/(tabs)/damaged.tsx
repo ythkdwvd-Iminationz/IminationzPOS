@@ -17,12 +17,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import {
-  api,
   damagedApi,
   DamagedItem,
   DamagedSummary,
   InventoryItem,
 } from "@/src/api/client";
+import { getInventory, peekInventory, invalidateInventory } from "@/src/api/cache";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useFormDraft } from "@/src/draft/useFormDraft";
 
@@ -84,13 +84,15 @@ export default function DamagedScreen() {
   const sellDraft = useFormDraft<SellDraft>(SELL_DRAFT_KEY);
   const [sellHydrated, setSellHydrated] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     try {
       setError(null);
+      const cached = peekInventory();
+      if (cached && !force) setInventory(cached);
       const [list, sm, inv] = await Promise.all([
         damagedApi.list(),
         damagedApi.summary(),
-        api.listInventory(),
+        getInventory(force),
       ]);
       setItems(list);
       setSummary(sm);
@@ -192,7 +194,8 @@ export default function DamagedScreen() {
       await damagedApi.markDamaged(selectedInv.id, q, markReason.trim());
       setMarkOpen(false);
       await markDraft.clearDraft();
-      load();
+      invalidateInventory(); // markDamaged deducts inventory.current_qty server-side
+      load(true);
     } catch (e: any) {
       setMarkError(e.message);
     } finally {
@@ -347,7 +350,7 @@ export default function DamagedScreen() {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                load();
+                load(true);
               }}
               tintColor={theme.color.brandPrimary}
             />
