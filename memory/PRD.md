@@ -108,6 +108,17 @@ Original repo: `https://github.com/ythkdwvd-Iminationz/IminationzPOS` (imported 
 - Added pull-to-refresh (`RefreshControl`) to Inventory's list (previously missing); Damaged's existing pull-to-refresh now force-bypasses the cache.
 - Any stock-changing action — Inventory create/update, Damaged "Mark as Damaged", Billing "Complete Bill", Sales "Exchange Item" — calls `invalidateInventory()` right after success so every other screen fetches fresh stock on its next focus/refresh instead of showing stale numbers.
 
+## What's been implemented — 2026-02 session (cont'd): Duplicate bill_number on submit
+**Problem reported by user:** Submitting a new bill sometimes fails with `duplicate key value violates unique constraint "bills_bill_number_key"`.
+
+**Root cause:** `public.next_bill_number(date)` derives the next serial from `count(*)` over the day's existing bills. That count drops back when a bill is deleted (so the next new bill reuses an existing number) and it races on concurrent inserts (both callers see the same count, both generate the same `BILL-YYYYMMDD-NNN`).
+
+**Fix delivered:**
+- `/app/supabase/migration/fix_bill_number_duplicate.sql` (**user must paste into Supabase SQL Editor and run — NOT auto-applied**):
+  - Rewrites `next_bill_number()` to use `MAX(numeric suffix) + 1` over that date's existing `bill_number`s (delete-safe).
+  - Wraps the bill-number generation + `INSERT` inside `create_bill()` in a retry loop that catches `unique_violation` and bumps the serial (up to 25 retries) — handles concurrent submissions cleanly.
+  - Full `create_bill()` body is kept in sync with the latest `custom_pricing.sql` + `whole_numbers.sql` behavior (owner custom pricing, whole-number rounding, configurable discount).
+
 ## Prioritized backlog / next steps
 - **P0:** Fix the Supabase OTP login blocker (`otp_disabled` for admin@iminationz.app) — re-create/confirm the user in Supabase Authentication so the app can actually be logged into and tested.
 - **P0:** User must run `whole_numbers.sql` (if not already) then `custom_pricing.sql` in Supabase SQL Editor.
