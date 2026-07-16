@@ -56,6 +56,9 @@ export default function InventoryScreen() {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adjustMode, setAdjustMode] = useState<"add" | "remove">("add");
+  const [adjustQty, setAdjustQty] = useState("");
+  const [adjustError, setAdjustError] = useState<string | null>(null);
 
   const draft = useFormDraft<InventoryDraft>(DRAFT_KEY);
   const [draftHydrated, setDraftHydrated] = useState(false);
@@ -113,6 +116,9 @@ export default function InventoryScreen() {
   const openCreate = () => {
     setForm(EMPTY);
     setError(null);
+    setAdjustMode("add");
+    setAdjustQty("");
+    setAdjustError(null);
     setModalOpen(true);
   };
 
@@ -128,7 +134,39 @@ export default function InventoryScreen() {
       current_qty: String(it.current_qty),
     });
     setError(null);
+    setAdjustMode("add");
+    setAdjustQty("");
+    setAdjustError(null);
     setModalOpen(true);
+  };
+
+  const applyStockAdjustment = () => {
+    setAdjustError(null);
+    const q = parseInt(adjustQty || "0", 10);
+    if (!q || q <= 0) {
+      setAdjustError("Enter a quantity greater than 0");
+      return;
+    }
+    const openingNum = parseInt(form.opening_qty || "0", 10) || 0;
+    const currentNum = parseInt(form.current_qty || "0", 10) || 0;
+    if (adjustMode === "add") {
+      setForm({
+        ...form,
+        opening_qty: String(openingNum + q),
+        current_qty: String(currentNum + q),
+      });
+    } else {
+      if (q > currentNum) {
+        setAdjustError(`Only ${currentNum} in current stock`);
+        return;
+      }
+      setForm({
+        ...form,
+        opening_qty: String(Math.max(0, openingNum - q)),
+        current_qty: String(currentNum - q),
+      });
+    }
+    setAdjustQty("");
   };
 
   const save = async () => {
@@ -171,6 +209,8 @@ export default function InventoryScreen() {
 
   const closeModal = () => {
     setModalOpen(false);
+    setAdjustQty("");
+    setAdjustError(null);
     draft.clearDraft();
   };
 
@@ -342,6 +382,84 @@ export default function InventoryScreen() {
                   />
                 )}
 
+                {form.id && (
+                  <View style={styles.adjustBox}>
+                    <Text style={styles.label}>Add / Remove Stock</Text>
+                    <Text style={styles.adjustHint}>
+                      Adds/removes qty from both Opening &amp; Current stock
+                    </Text>
+                    <View style={styles.adjustToggleRow}>
+                      <Pressable
+                        testID="stock-adjust-mode-add"
+                        onPress={() => setAdjustMode("add")}
+                        style={[
+                          styles.adjustToggle,
+                          adjustMode === "add" && styles.adjustToggleActive,
+                        ]}
+                      >
+                        <Ionicons
+                          name="add-circle-outline"
+                          size={16}
+                          color={adjustMode === "add" ? theme.color.onBrandPrimary : theme.color.onSurface}
+                        />
+                        <Text
+                          style={[
+                            styles.adjustToggleText,
+                            adjustMode === "add" && { color: theme.color.onBrandPrimary },
+                          ]}
+                        >
+                          Add
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        testID="stock-adjust-mode-remove"
+                        onPress={() => setAdjustMode("remove")}
+                        style={[
+                          styles.adjustToggle,
+                          adjustMode === "remove" && styles.adjustToggleActive,
+                        ]}
+                      >
+                        <Ionicons
+                          name="remove-circle-outline"
+                          size={16}
+                          color={adjustMode === "remove" ? theme.color.onBrandPrimary : theme.color.onSurface}
+                        />
+                        <Text
+                          style={[
+                            styles.adjustToggleText,
+                            adjustMode === "remove" && { color: theme.color.onBrandPrimary },
+                          ]}
+                        >
+                          Remove
+                        </Text>
+                      </Pressable>
+                    </View>
+                    <View style={styles.adjustInputRow}>
+                      <TextInput
+                        testID="stock-adjust-qty-input"
+                        value={adjustQty}
+                        onChangeText={(v) => setAdjustQty(v.replace(/[^0-9]/g, ""))}
+                        keyboardType="number-pad"
+                        placeholder="Qty e.g. 10"
+                        placeholderTextColor={theme.color.onSurfaceTertiary}
+                        style={[styles.input, { flex: 1 }]}
+                      />
+                      <Pressable
+                        testID="apply-stock-adjustment"
+                        onPress={applyStockAdjustment}
+                        style={styles.adjustApplyBtn}
+                      >
+                        <Text style={styles.adjustApplyText}>Apply</Text>
+                      </Pressable>
+                    </View>
+                    {adjustError && (
+                      <Text testID="stock-adjust-error" style={[styles.error, { marginTop: theme.spacing.sm }]}>
+                        {adjustError}
+                      </Text>
+                    )}
+                  </View>
+                )}
+
                 {error && <Text style={styles.error}>{error}</Text>}
 
                 <Pressable
@@ -483,6 +601,39 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   error: { color: theme.color.error, marginTop: theme.spacing.md },
+  adjustBox: {
+    marginTop: theme.spacing.lg,
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+  },
+  adjustHint: { color: theme.color.onSurfaceTertiary, fontSize: 11, marginTop: -4, marginBottom: theme.spacing.sm },
+  adjustToggleRow: { flexDirection: "row", gap: 8, marginBottom: theme.spacing.sm },
+  adjustToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    flex: 1,
+    height: 40,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    backgroundColor: theme.color.surface,
+  },
+  adjustToggleActive: { backgroundColor: theme.color.brandPrimary, borderColor: theme.color.brandPrimary },
+  adjustToggleText: { color: theme.color.onSurface, fontWeight: "700", fontSize: 13 },
+  adjustInputRow: { flexDirection: "row", gap: 8 },
+  adjustApplyBtn: {
+    paddingHorizontal: 18,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.color.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  adjustApplyText: { color: theme.color.onBrandPrimary, fontWeight: "700", fontSize: 14 },
   saveBtn: {
     marginTop: theme.spacing.xl,
     backgroundColor: theme.color.brandPrimary,

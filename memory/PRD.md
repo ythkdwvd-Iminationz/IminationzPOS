@@ -77,7 +77,20 @@ Original repo: `https://github.com/ythkdwvd-Iminationz/IminationzPOS` (imported 
 - Invoice screen (`/app/frontend/app/invoice/[id].tsx`): "Custom" tag shown on-screen, in the printed HTML receipt, and in the shared PDF for any custom-priced line.
 - Security fix from code review: an owner's in-progress custom-priced draft could previously be inherited by an employee logging in on the same shared device, causing a blocked checkout. Fixed by stripping `customPrice` from restored drafts unless the current session is confirmed `owner`.
 
+## What's been implemented — 2026-02 session (cont'd): Damaged categories bug + Stock Add/Remove
+**Problem reported by user:** (1) On the Damaged Items screen's "Mark as Damaged" item picker, not all categories were visible/reachable (especially Rings). (2) Wanted a way to add new stock in Inventory that increases both Opening Qty and Current Qty together (e.g. Open 20 + Current 15, add 10 → Open 30, Current 25).
+
+**Root cause (damaged categories):** `/app/frontend/app/(tabs)/damaged.tsx`'s item picker had no category filter and hard-capped the list to `filteredInventory.slice(0, 12)`. Inventory is sorted alphabetically by category — any category (like "Ring") beyond the first 12 in-stock items across earlier categories never appeared.
+
+**Fix delivered:**
+- `damaged.tsx`: Added the same horizontal category-chip filter used in Inventory to the "Select Item" picker (`invCategories` derived from in-stock inventory, `invCategory` state, chips testID `damaged-category-chip-{category}`), and removed the 12-item cap so all matching items render/scroll.
+- `inventory.tsx`: Added an "Add / Remove Stock" box inside the existing Edit Item form (visible only when editing). Toggle chips (`stock-adjust-mode-add` / `stock-adjust-mode-remove`) + qty input (`stock-adjust-qty-input`) + Apply button (`apply-stock-adjustment`). Applying adds/subtracts the entered qty from **both** Opening Qty and Current Qty fields (Remove is blocked if qty exceeds current stock). Setting an exact value is still possible by directly typing into Opening/Current Qty fields (unchanged). No adjustment history log, per user's choice.
+- Restored `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` in `/app/frontend/.env` (repo cloned fresh into this workspace from GitHub; anon key provided by user).
+
+**Known blocker (pre-existing, confirmed still present, out of scope for this session):** Supabase OTP login for `admin@iminationz.app` returns `422 otp_disabled — "Signups not allowed for otp"` (verified via direct Auth API call). This blocks any UI login, so full in-app testing (by both the agent and the user) is stuck at the login screen until the user re-provisions/confirms the account in Supabase → Authentication → Users.
+
 ## Prioritized backlog / next steps
-- **P0:** User must run `whole_numbers.sql` (if not already) then `custom_pricing.sql`, and confirm/re-provision the OTP login account before anything can be tested.
+- **P0:** Fix the Supabase OTP login blocker (`otp_disabled` for admin@iminationz.app) — re-create/confirm the user in Supabase Authentication so the app can actually be logged into and tested.
+- **P0:** User must run `whole_numbers.sql` (if not already) then `custom_pricing.sql` in Supabase SQL Editor.
 - **P1:** Consider adding a lightweight "restored draft" banner on Inventory/Expenses/Damaged (Billing already has one) so staff know why a form reopened pre-filled.
 - **P2:** Employee-role test account + documented employee permissions matrix.

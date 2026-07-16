@@ -64,6 +64,7 @@ export default function DamagedScreen() {
   // Mark-damaged modal state
   const [markOpen, setMarkOpen] = useState(false);
   const [invSearch, setInvSearch] = useState("");
+  const [invCategory, setInvCategory] = useState<string>("All");
   const [selectedInv, setSelectedInv] = useState<InventoryItem | null>(null);
   const [markQty, setMarkQty] = useState("1");
   const [markReason, setMarkReason] = useState("");
@@ -150,6 +151,7 @@ export default function DamagedScreen() {
   const openMark = () => {
     setSelectedInv(null);
     setInvSearch("");
+    setInvCategory("All");
     setMarkQty("1");
     setMarkReason("");
     setMarkError(null);
@@ -236,10 +238,18 @@ export default function DamagedScreen() {
     }
   };
 
+  const invCategories = useMemo(() => {
+    const cats = Array.from(
+      new Set(inventory.filter((i) => i.current_qty > 0).map((i) => i.category))
+    ).sort();
+    return ["All", ...cats];
+  }, [inventory]);
+
   const filteredInventory = useMemo(() => {
     const s = invSearch.trim().toLowerCase();
     return inventory
       .filter((i) => i.current_qty > 0)
+      .filter((i) => invCategory === "All" || i.category === invCategory)
       .filter((i) => {
         if (!s) return true;
         return (
@@ -248,7 +258,7 @@ export default function DamagedScreen() {
           i.category.toLowerCase().includes(s)
         );
       });
-  }, [inventory, invSearch]);
+  }, [inventory, invSearch, invCategory]);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -425,8 +435,40 @@ export default function DamagedScreen() {
                         style={styles.searchInput}
                       />
                     </View>
+                    <View style={styles.invCategoryRowWrap}>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.chipRow}
+                      >
+                        {invCategories.map((c) => {
+                          const active = c === invCategory;
+                          return (
+                            <Pressable
+                              key={c}
+                              testID={`damaged-category-chip-${c}`}
+                              onPress={() => setInvCategory(c)}
+                              style={[
+                                styles.chip,
+                                { borderColor: active ? theme.color.brandPrimary : theme.color.border },
+                              ]}
+                            >
+                              <Text
+                                style={{
+                                  color: active ? theme.color.brandPrimary : theme.color.onSurfaceSecondary,
+                                  fontWeight: "600",
+                                  fontSize: 13,
+                                }}
+                              >
+                                {c}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
                     <View style={styles.invList} testID="mark-inv-list">
-                      {filteredInventory.slice(0, 12).map((i) => (
+                      {filteredInventory.map((i) => (
                         <Pressable
                           key={i.id}
                           testID={`pick-inv-${i.item_id}`}
@@ -436,7 +478,7 @@ export default function DamagedScreen() {
                           <View style={{ flex: 1 }}>
                             <Text style={styles.invName}>{i.item_name}</Text>
                             <Text style={styles.invSub}>
-                              {i.item_id} · Qty {i.current_qty} · {formatINRPlain(i.price)}
+                              {i.item_id} · {i.category} · Qty {i.current_qty} · {formatINRPlain(i.price)}
                             </Text>
                           </View>
                           <Ionicons name="chevron-forward" size={18} color={theme.color.onSurfaceTertiary} />
@@ -723,6 +765,7 @@ const styles = StyleSheet.create({
   sumLabel: { color: theme.color.onSurfaceTertiary, fontSize: 11, fontWeight: "600" },
   sumValue: { color: theme.color.onSurface, fontSize: 16, fontWeight: "700", marginTop: 6 },
   chipRowWrap: { height: 56, justifyContent: "center" },
+  invCategoryRowWrap: { height: 56, justifyContent: "center", marginTop: theme.spacing.sm },
   chipRow: { paddingHorizontal: theme.spacing.lg, gap: 8, alignItems: "center" },
   chip: {
     height: 36,
