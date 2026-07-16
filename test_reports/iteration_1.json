@@ -1,0 +1,37 @@
+{
+  "summary": "Frontend-only static review + partial UI test (no backend, Supabase-only app; login blocked by OTP-only auth). Confirmed app boots cleanly, login screen renders with correct testIDs, and did a thorough code review of the whole-number changes and new draft-persistence (useFormDraft) wiring across inventory.tsx, damaged.tsx, expenses.tsx, and billing.tsx discount modal. SQL migration whole_numbers.sql reviewed and is syntactically valid Postgres/PLpgSQL (guarded DO blocks, BEGIN/COMMIT balanced, correct GRANTs).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "inventory.tsx Field wrapper", "issue": "TypeScript implicit-any errors (TS7006) on 7 onChangeText inline callbacks in the price/cost_price/category/item_id/item_name/opening_qty fields, because the shared `Field` component types its props as `any`. Not a runtime crash (Metro/Babel doesn't typecheck), but `npx tsc --noEmit` fails — should be cleaned up for CI/lint hygiene.", "testID": "form-price, form-cost-price, form-category, form-item-id, form-item-name, form-opening-qty, form-current-qty", "priority": "LOW"},
+      {"component": "sales.tsx DateRangeModal", "issue": "Pre-existing TS2322 error: `onCancel` prop passed to a Pressable-typed component that doesn't declare it. Not part of this session's changed files (whole-number/draft scope); flagging since it also fails `tsc --noEmit`.", "testID": "N/A", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "None blocking — whole-number and draft-persistence code changes reviewed and look correct. Optional cleanup: fix the 7 implicit-any TS errors in inventory.tsx Field usages (type the onChangeText param as `(v: string) => ...`) and the unrelated pre-existing sales.tsx DateRangeModal onCancel prop typing.",
+    "User must manually run /app/supabase/migration/whole_numbers.sql in Supabase SQL Editor for the live Cash+UPI mismatch bug to actually be fixed — this was NOT executed by this agent per instructions.",
+    "Login cannot be automated end-to-end (Supabase OTP-only, no test password). When attempting Send Code with admin@iminationz.app, Supabase returned 'Signups not allowed for otp' (422) instead of proceeding to OTP entry — this suggests the admin@iminationz.app auth user may not actually exist yet in Supabase Auth (OTP sign-in attempts to auto-signup if the user is missing, and that project has signups disabled). Recommend the user verify in Supabase Dashboard → Authentication → Users that admin@iminationz.app exists as a confirmed user; if not, they need to create it there first, since OTP alone won't create it."
+  ],
+  "critical_code_review_comments": [
+    "whole_numbers.sql: correctly rounds existing decimal data, rewrites create_bill()/exchange_bill_item()/sell_damaged() to round to 0 decimals, guards optional tables via to_regclass(), and is wrapped in a single transaction with COMMIT + PostgREST schema reload notify. Syntactically valid; idempotent (safe to re-run) as claimed.",
+    "useFormDraft.ts: clean generic hook, debounced AsyncStorage save (400ms), immediate flush on AppState background/inactive, clearedRef guard against stray debounced writes after clear — mirrors the already-working useDraftBilling.ts pattern well. No bugs found.",
+    "inventory.tsx: price and cost_price TextInputs use keyboardType='number-pad' and strip non-digits via regex + parseInt (no parseFloat/toFixed anywhere). Draft restore-on-mount + scheduleSave-while-open + clearDraft-on-save-and-close all wired correctly. opening_qty/current_qty fields don't strip non-numeric chars via regex (unlike price fields) but this is a pre-existing quantity field, not a currency amount, so out of scope for the whole-number-money fix.",
+    "damaged.tsx: sell-price field strips non-digits and uses parseInt; mark-damaged and sell-damaged modals both have independent useFormDraft instances with correct restore/save/clear wiring including the AsyncStorage-backed selectedInv/sellTarget object persistence.",
+    "expenses.tsx: child amount, personal/business split amounts, and personal-fund-input all strip non-digits and use parseInt — no decimals possible. ExpenseFormBatchModal correctly receives initialDraft/onDraftChange/onDraftClear as props from the parent, and the parent has a restore-on-mount effect that reopens the modal with targetExpense context preserved. Draft cleared on both successful save (onCommitSave) and explicit close (handleClose).",
+    "billing.tsx: cash/upi inputs and discount computation already used parseInt/Math.round (no toFixed with decimals) — confirmed unchanged and correct. Discount Settings modal (cfgModalOpen) has its own useFormDraft instance, saves tmpDiscType/tmpDiscValue/tmpDiscMin while open, restores+reopens on mount, and clears on both save and cancel/close."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (no backend, Supabase-only)", "frontend": "Login screen boot: 100% pass. Full authenticated flow: 0% (blocked by OTP, out of scope per instructions)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login is Supabase email-OTP only; admin@iminationz.app currently returns 'Signups not allowed for otp' (422) rather than reaching OTP entry, so no authenticated screen (inventory/damaged/expenses/billing forms) can be exercised live via browser automation in this environment. All verification of the whole-number and draft-persistence features was done via static code review, which passed. If a working OTP-capable email or a temporary password is provided in future test_credentials.md updates, a full E2E pass (open each modal, background/reload the page, confirm draft restore, submit, confirm decimal-free amounts) should be done.",
+  "rca_of_issue": "N/A - no bug reproduction needed here; original 'Cash + UPI must equal Final Amount' bug is server-side (Supabase RPC rounding) and only fixable by running the provided SQL migration, which the user must do manually and was correctly not executed by this agent."
+}
