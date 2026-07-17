@@ -216,7 +216,7 @@ export default function SalesScreen() {
                 testID="sales-search"
                 value={search}
                 onChangeText={setSearch}
-                placeholder="Search bill no or mobile"
+                placeholder="Search bill no, mobile or name"
                 placeholderTextColor={theme.color.onSurfaceTertiary}
                 style={styles.searchInput}
               />

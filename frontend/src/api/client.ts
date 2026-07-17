@@ -343,8 +343,12 @@ export const api = {
     const range = dateRangeForFilter(params.filter || "today", params.start_date, params.end_date);
     if (range) q = q.gte("date", range.from).lte("date", range.to);
     if (params.search && params.search.trim()) {
-      const s = params.search.trim();
-      q = q.or(`bill_number.ilike.%${s}%,customer_mobile.ilike.%${s}%`);
+      // Escape PostgREST .or() reserved chars ( , ) so a customer name with
+      // spaces / punctuation doesn't blow up the request.
+      const s = params.search.trim().replace(/[(),]/g, " ");
+      q = q.or(
+        `bill_number.ilike.%${s}%,customer_mobile.ilike.%${s}%,customer_name.ilike.%${s}%`
+      );
     }
     const { data, error } = await q;
     if (error) throw new Error(error.message);
@@ -388,10 +392,17 @@ export const api = {
   },
 
   // Dashboard
-  dashboard: async (): Promise<DashboardData> => {
-    const today = todayIST();
+  //
+  // Owner asked to view "complete dashboard for a specific date". Optional
+  // `date` (YYYY-MM-DD) — defaults to today (IST). All sales-related KPIs
+  // (bills / cash / UPI / discount / avg bill / items sold) are scoped to
+  // the requested date. Inventory KPIs (total qty, low stock) remain live —
+  // we don't have historical stock snapshots, and viewing "current stock"
+  // alongside any date is the desired behavior.
+  dashboard: async (date?: string): Promise<DashboardData> => {
+    const target = date || todayIST();
     const [{ data: bills }, { data: inv }] = await Promise.all([
-      supabase.from("v_bills_full").select("*").eq("date", today),
+      supabase.from("v_bills_full").select("*").eq("date", target),
       supabase.from("inventory").select("current_qty"),
     ]);
     const list = bills || [];
@@ -407,7 +418,7 @@ export const api = {
     const total_inventory_qty = (inv || []).reduce((a, i) => a + Number(i.current_qty), 0);
     const low_stock_count = (inv || []).filter((i) => Number(i.current_qty) <= 5).length;
     return {
-      date: today,
+      date: target,
       total_sales,
       total_cash,
       total_upi,
