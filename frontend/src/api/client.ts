@@ -915,6 +915,138 @@ export const damagedApi = {
   },
 };
 
+// ---------- WhatsApp community invites ----------
+export interface WhatsAppContact {
+  mobile: string;
+  last_name: string | null;
+  bill_count: number;
+  last_bill_iso: string; // ISO datetime of most recent bill
+  invite_sent_at: string | null;
+}
+
+const DEFAULT_WA_LINK = "https://chat.whatsapp.com/DMU6HmjLdQiA0FuQKv1q3v";
+
+// Normalize an Indian mobile into E.164-style digits for wa.me
+// (wa.me wants digits only, country code included, no + / spaces / dashes).
+export const normalizeIndianMobile = (raw: string): string | null => {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 10) return "91" + digits;
+  if (digits.length === 11 && digits.startsWith("0")) return "91" + digits.slice(1);
+  if (digits.length === 12 && digits.startsWith("91")) return digits;
+  if (digits.length === 13 && digits.startsWith("091")) return digits.slice(1);
+  return null; // unknown format — caller should fall back gracefully
+};
+
+export const whatsappApi = {
+  getSettings: async (): Promise<{ link: string; autoOpen: boolean }> => {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("key,value_text")
+      .in("key", ["whatsapp_community_link", "whatsapp_auto_open"]);
+    if (error) throw new Error(error.message);
+    let link = DEFAULT_WA_LINK;
+    let autoOpen = true;
+    (data || []).forEach((r: any) => {
+      if (r.key === "whatsapp_community_link" && r.value_text) link = r.value_text;
+      if (r.key === "whatsapp_auto_open") autoOpen = String(r.value_text).toLowerCase() !== "false";
+    });
+    return { link, autoOpen };
+  },
+
+  updateSettings: async (patch: { link?: string; autoOpen?: boolean }): Promise<void> => {
+    const now = new Date().toISOString();
+    const rows: any[] = [];
+    if (patch.link !== undefined) {
+      rows.push({
+        key: "whatsapp_community_link",
+        value_text: patch.link,
+        value_num: null,
+        updated_at: now,
+      });
+    }
+    if (patch.autoOpen !== undefined) {
+      rows.push({
+        key: "whatsapp_auto_open",
+        value_text: patch.autoOpen ? "true" : "false",
+        value_num: null,
+        updated_at: now,
+      });
+    }
+    if (rows.length === 0) return;
+    const { error } = await supabase.from("app_settings").upsert(rows, { onConflict: "key" });
+    if (error) throw new Error(error.message);
+  },
+
+  // Derive the contacts list from bills (group by mobile). Left-joined
+  // with whatsapp_invites in-memory so we can flag which have been sent.
+  getContacts: async (): Promise<WhatsAppContact[]> => {
+    const [{ data: bills, error: e1 }, { data: sent, error: e2 }] = await Promise.all([
+      supabase
+        .from("bills")
+        .select("customer_mobile,customer_name,iso")
+        .not("customer_mobile", "is", null)
+        .order("iso", { ascending: false }),
+      supabase.from("whatsapp_invites").select("mobile,sent_at"),
+    ]);
+    if (e1) throw new Error(e1.message);
+    if (e2) throw new Error(e2.message);
+    const sentMap = new Map<string, string>();
+    (sent || []).forEach((s: any) => sentMap.set(s.mobile, s.sent_at));
+    const byMobile = new Map<string, WhatsAppContact>();
+    (bills || []).forEach((b: any) => {
+      const m = String(b.customer_mobile || "").trim();
+      if (!m) return;
+      const existing = byMobile.get(m);
+      if (existing) {
+        existing.bill_count += 1;
+        // First bill in DESC order sets last_bill_iso; keep it.
+        if (!existing.last_name && b.customer_name) existing.last_name = b.customer_name;
+      } else {
+        byMobile.set(m, {
+          mobile: m,
+          last_name: b.customer_name || null,
+          bill_count: 1,
+          last_bill_iso: b.iso,
+          invite_sent_at: sentMap.get(m) || null,
+        });
+      }
+    });
+    return Array.from(byMobile.values()).sort(
+      (a, b) => new Date(b.last_bill_iso).getTime() - new Date(a.last_bill_iso).getTime()
+    );
+  },
+
+  isInvited: async (mobile: string): Promise<boolean> => {
+    const { data, error } = await supabase
+      .from("whatsapp_invites")
+      .select("mobile")
+      .eq("mobile", mobile)
+      .maybeSingle();
+    if (error && (error as any).code !== "PGRST116") throw new Error(error.message);
+    return !!data;
+  },
+
+  markSent: async (mobile: string, sentByEmail?: string | null): Promise<void> => {
+    const { error } = await supabase
+      .from("whatsapp_invites")
+      .upsert(
+        [{ mobile, sent_at: new Date().toISOString(), sent_by_email: sentByEmail || null }],
+        { onConflict: "mobile" }
+      );
+    if (error) throw new Error(error.message);
+  },
+
+  // Build a wa.me deep-link with the pre-filled invite message.
+  buildInviteUrl: (mobile: string, name: string | null, link: string): string | null => {
+    const normalized = normalizeIndianMobile(mobile);
+    if (!normalized) return null;
+    const greeting = name && name.trim() ? `Hi ${name.trim()}` : "Hi";
+    const text = `${greeting}, thank you for shopping at ${STORE_NAME}! Join our WhatsApp community for exclusive offers and new arrivals: ${link}`;
+    return `https://wa.me/${normalized}?text=${encodeURIComponent(text)}`;
+  },
+};
+
 // ---------- utils ----------
 function sum<T>(arr: T[], f: (t: T) => number) {
   return arr.reduce((s, x) => s + (f(x) || 0), 0);

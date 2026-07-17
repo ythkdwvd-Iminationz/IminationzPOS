@@ -11,10 +11,11 @@ import {
   ActivityIndicator,
   Modal,
 } from "react-native";
+import * as Linking from "expo-linking";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, InventoryItem, CustomerInfo, logout, settingsApi, BillingConfig, DiscountType } from "@/src/api/client";
+import { api, InventoryItem, CustomerInfo, logout, settingsApi, BillingConfig, DiscountType, whatsappApi } from "@/src/api/client";
 import { getInventory, peekInventory, invalidateInventory } from "@/src/api/cache";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useDraftBilling } from "@/src/draft/useDraftBilling";
@@ -493,6 +494,31 @@ export default function BillingScreen() {
       router.push(`/invoice/${bill.id}`);
       invalidateInventory(); // createBill deducts inventory.current_qty server-side
       load(true);
+
+      // WhatsApp community invite — if the bill has a mobile and this mobile
+      // has never been invited before, open a pre-filled WhatsApp chat so the
+      // owner just taps "Send". Skipped for walk-ins, repeat-invited customers,
+      // or if the owner disabled auto-open from the Contacts screen.
+      if (mobileValue) {
+        try {
+          const settings = await whatsappApi.getSettings();
+          if (settings.autoOpen) {
+            const already = await whatsappApi.isInvited(mobileValue);
+            if (!already) {
+              const url = whatsappApi.buildInviteUrl(mobileValue, nameValue || null, settings.link);
+              if (url) {
+                const supported = await Linking.canOpenURL(url);
+                if (supported) await Linking.openURL(url);
+                // Optimistically mark as sent — user can still cancel in
+                // WhatsApp, but this keeps us from re-nagging next visit.
+                await whatsappApi.markSent(mobileValue).catch(() => {});
+              }
+            }
+          }
+        } catch {
+          // Never let WhatsApp-side errors block bill completion.
+        }
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {

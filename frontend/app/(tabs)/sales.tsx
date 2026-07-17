@@ -153,14 +153,26 @@ export default function SalesScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
-        <Text style={styles.title}>
-          {isEmployee ? "Today's Sales" : "Sales History"}
-        </Text>
-        <Text style={styles.subtitle}>
-          {isEmployee
-            ? `${bills.length} bills`
-            : `${bills.length} bills · ${formatINRPlain(totals.sales)}`}
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>
+            {isEmployee ? "Today's Sales" : "Sales History"}
+          </Text>
+          <Text style={styles.subtitle}>
+            {isEmployee
+              ? `${bills.length} bills`
+              : `${bills.length} bills · ${formatINRPlain(totals.sales)}`}
+          </Text>
+        </View>
+        {!isEmployee && (
+          <Pressable
+            testID="sales-wa-contacts"
+            onPress={() => router.push("/whatsapp-contacts")}
+            style={styles.waHeaderBtn}
+            hitSlop={8}
+          >
+            <Ionicons name="logo-whatsapp" size={20} color={theme.color.brandPrimary} />
+          </Pressable>
+        )}
       </View>
 
       {!isEmployee && (
@@ -854,6 +866,9 @@ function ExchangeModal({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.color.surface },
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.md,
     paddingHorizontal: theme.spacing.xl,
     paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.md,
@@ -862,6 +877,16 @@ const styles = StyleSheet.create({
   },
   title: { color: theme.color.onSurface, fontSize: 22, fontWeight: "700" },
   subtitle: { color: theme.color.onSurfaceTertiary, fontSize: 12, marginTop: 2 },
+  waHeaderBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.color.brandTertiary,
+    borderWidth: 1,
+    borderColor: theme.color.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
