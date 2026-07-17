@@ -173,6 +173,20 @@ Original repo: `https://github.com/ythkdwvd-Iminationz/IminationzPOS` (imported 
 **What the user needs to do (one-time, ~10s):**
 1. Paste `/app/supabase/migration/whatsapp_invites.sql` into Supabase SQL Editor → Run.
 
+## What's been implemented — 2026-02 session (cont'd): Exchange duplicate-key defensive fix
+**Problem reported by user:** "Exchange is not working — getting duplicate key error" when using the Sales → Exchange flow. User did not share the exact constraint name.
+
+**Fix delivered:**
+- `/app/supabase/migration/fix_exchange_duplicate.sql` (**user must paste + run in Supabase SQL Editor**):
+  - Ensures `uuid-ossp` extension is present.
+  - Rewrites `public.exchange_bill_item()` to explicitly generate `exchange_history.id` via `uuid_generate_v4()` inside a retry loop.
+  - Catches `unique_violation`:
+    - If constraint is `exchange_history_pkey` → retry with a fresh UUID (up to 5 times) — handles legacy rows / astronomical PK collisions.
+    - For **any other unique constraint** → re-raise with a friendly error message **including the actual constraint name**, so the app's error toast reveals the root cause if this defensive fix isn't the whole story.
+  - Also refreshed the discount recompute inside exchange to use `app_settings` (in sync with `custom_pricing.sql` / `billing_config_damaged.sql`) so exchange bills apply the owner's configured discount correctly.
+- Testing agent verified: SQL syntactically valid, RPC signature matches `api.exchangeBillItem` client call, exchange_history column set matches schema. E2E via live DB blocked on this workspace's missing `.env` (documented blocker) — user must run on their side and report back.
+- No frontend changes required.
+
 ## Prioritized backlog / next steps
 - **P0:** Fix the Supabase OTP login blocker (`otp_disabled` for admin@iminationz.app) — re-create/confirm the user in Supabase Authentication so the app can actually be logged into and tested.
 - **P0:** User must run `whole_numbers.sql` (if not already) then `custom_pricing.sql` in Supabase SQL Editor.
