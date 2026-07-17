@@ -119,6 +119,21 @@ Original repo: `https://github.com/ythkdwvd-Iminationz/IminationzPOS` (imported 
   - Wraps the bill-number generation + `INSERT` inside `create_bill()` in a retry loop that catches `unique_violation` and bumps the serial (up to 25 retries) — handles concurrent submissions cleanly.
   - Full `create_bill()` body is kept in sync with the latest `custom_pricing.sql` + `whole_numbers.sql` behavior (owner custom pricing, whole-number rounding, configurable discount).
 
+## What's been implemented — 2026-02 session (cont'd): Dashboard date picker + Sales customer-name search
+**Problem reported by user:** (1) Owner wants to view the complete dashboard for any specific day (not just today). (2) Sales screen search should also match by customer name (previously only bill number + mobile).
+
+**Fix delivered:**
+- `src/api/client.ts`:
+  - `api.dashboard(date?)` now accepts an optional `YYYY-MM-DD`. All sales KPIs (bills, cash, UPI, discount, avg bill, items sold) are scoped to that date via `v_bills_full` filter. Inventory KPIs (total qty, low stock) remain live — no historical stock snapshots exist and viewing current stock alongside any date is the desired behavior.
+  - `api.listBills({search})` `.or()` now also matches `customer_name.ilike.%s%` (in addition to bill_number + customer_mobile). PostgREST reserved chars `( , )` are stripped from the query to keep the filter safe.
+- `app/(tabs)/dashboard.tsx` (owner-only, employee view unchanged):
+  - Added a compact date bar under the header with `‹ prev day`, a tappable "Fri, 27 Aug 2025" pill, `next day ›` (disabled on today), and a "Today" reset chip that appears when a non-today date is selected.
+  - Tapping the pill opens `SingleDateModal` — same UX pattern as the sales `DateRangeModal` (YYYY-MM-DD field + −1d/+1d + quick chips: Today / Yesterday / 7 days ago).
+  - Header subtitle switches between "Today's overview · {date}" and "Selected day · {date}".
+  - Future dates are blocked (no data there anyway).
+- `app/(tabs)/sales.tsx`: search input placeholder now reads "Search bill no, mobile or name" to match the expanded filter.
+- Reinstalled missing `@react-native-community/datetimepicker` (listed in package.json + app.json plugins but node_modules had never been populated in this fresh checkout — expo was in BACKOFF before this session for that reason).
+
 ## Prioritized backlog / next steps
 - **P0:** Fix the Supabase OTP login blocker (`otp_disabled` for admin@iminationz.app) — re-create/confirm the user in Supabase Authentication so the app can actually be logged into and tested.
 - **P0:** User must run `whole_numbers.sql` (if not already) then `custom_pricing.sql` in Supabase SQL Editor.
