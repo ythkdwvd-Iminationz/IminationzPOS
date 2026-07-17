@@ -134,6 +134,18 @@ Original repo: `https://github.com/ythkdwvd-Iminationz/IminationzPOS` (imported 
 - `app/(tabs)/sales.tsx`: search input placeholder now reads "Search bill no, mobile or name" to match the expanded filter.
 - Reinstalled missing `@react-native-community/datetimepicker` (listed in package.json + app.json plugins but node_modules had never been populated in this fresh checkout — expo was in BACKOFF before this session for that reason).
 
+## What's been implemented — 2026-02 session (cont'd): Faster billing for a single-handed store
+**Problem reported by user:** Managing store alone, packing orders + generating bills takes too long. Current flow forces 2 modal opens per bill (item picker + customer details) and requires typing full Cash/UPI amounts every time.
+
+**Fix delivered (all confirmed with user):**
+- `app/(tabs)/billing.tsx`:
+  - **Always-visible quick-search bar** at top of billing screen (`quick-search-input`). Typing filters an inline results list (up to 8 in-stock items; starts-with matches first, then contains). One tap adds to cart, clears search, and keyboard stays open for the next item. Pressing Enter/return also adds the first result — hands-free fast entry.
+  - **"Frequent" strip** (`frequent-strip`): horizontal scroll of the top 8 in-stock items by lifetime `sold_qty`. One tap = add to cart. Chip shows an in-cart qty badge when already added; turns branded when active. Hidden when the quick-search box has text so the user isn't distracted.
+  - **"Browse All Items"** — the original picker modal is preserved (now as a secondary outline button) for category-based browsing when the seller doesn't remember an item's name.
+  - **One-tap payment shortcuts** (`pay-full-cash` / `pay-full-upi` / `pay-half-half`) — auto-fill Cash + UPI so their sum equals Final Amount; hidden when Final = 0. Half/Half floors cash, remainder into UPI.
+  - **Quick Bill button** (`quick-bill-button`) — new secondary button in the Complete-Bill row that submits the bill immediately with empty customer info (walk-in). Skips the customer-details modal entirely. Existing "Complete Bill" still available for when the seller wants to capture mobile/name.
+  - `submit()` refactored to optionally accept `{ mobile, name, closeModal }` so the walk-in path reuses the exact same code path as the modal.
+
 ## Prioritized backlog / next steps
 - **P0:** Fix the Supabase OTP login blocker (`otp_disabled` for admin@iminationz.app) — re-create/confirm the user in Supabase Authentication so the app can actually be logged into and tested.
 - **P0:** User must run `whole_numbers.sql` (if not already) then `custom_pricing.sql` in Supabase SQL Editor.
