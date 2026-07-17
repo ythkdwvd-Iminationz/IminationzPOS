@@ -64,6 +64,10 @@ export default function BillingScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  // Inline "quick search" on the main billing screen — always visible, adds
+  // items to cart without opening the picker modal. Distinct from
+  // `pickerSearch` so opening the picker doesn't clobber this and vice versa.
+  const [quickSearch, setQuickSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -452,16 +456,25 @@ export default function BillingScreen() {
     setCustomerModalOpen(true);
   };
 
-  const submit = async () => {
+  const submit = async (
+    opts?: { mobile?: string; name?: string; closeModal?: boolean }
+  ) => {
     if (submitLockRef.current) return;
     submitLockRef.current = true;
+
+    // Callers can override the customer values (used by "Quick Bill" for a
+    // walk-in with no customer details). If not passed, we fall back to
+    // whatever the customer modal has captured.
+    const mobileValue = (opts?.mobile ?? tempCustomerMobile).trim();
+    const nameValue = (opts?.name ?? tempCustomerName).trim();
+    const shouldCloseModal = opts?.closeModal ?? true;
 
     setError(null);
     setSubmitting(true);
     try {
       const bill = await api.createBill({
-        customer_mobile: tempCustomerMobile.trim() || null,
-        customer_name: tempCustomerName.trim() || null,
+        customer_mobile: mobileValue || null,
+        customer_name: nameValue || null,
         cash_amount: parseInt(cashAmount, 10) || 0,
         upi_amount: parseInt(upiAmount, 10) || 0,
         items: cart.map((l) => ({
@@ -476,7 +489,7 @@ export default function BillingScreen() {
       });
       await draft.clearDraft();
       reset();
-      setCustomerModalOpen(false);
+      if (shouldCloseModal) setCustomerModalOpen(false);
       router.push(`/invoice/${bill.id}`);
       invalidateInventory(); // createBill deducts inventory.current_qty server-side
       load(true);
@@ -486,6 +499,16 @@ export default function BillingScreen() {
       setSubmitting(false);
       submitLockRef.current = false;
     }
+  };
+
+  // Walk-in shortcut: skips the customer-details modal entirely and submits
+  // the bill with no customer info attached.
+  const submitWalkIn = () => {
+    if (!isValid) {
+      setError("Cash + UPI must equal final amount");
+      return;
+    }
+    submit({ mobile: "", name: "", closeModal: false });
   };
 
   const categories = useMemo(() => {
@@ -514,6 +537,55 @@ export default function BillingScreen() {
     if (pickerSearch.trim() !== "") return true;
     return selectedCategory ? i.category === selectedCategory : true;
   });
+
+  // Frequent items strip on the main billing screen: top-selling in-stock
+  // items by lifetime sold_qty (already tracked on inventory row). One tap
+  // to add — great for the regulars sold every day.
+  const topFrequent = useMemo(() => {
+    return [...inventory]
+      .filter((i) => i.current_qty > 0 && (i.sold_qty || 0) > 0)
+      .sort((a, b) => (b.sold_qty || 0) - (a.sold_qty || 0))
+      .slice(0, 8);
+  }, [inventory]);
+
+  // Inline quick-search results (up to 8) — starts-with matches first so
+  // typing "ri" bubbles items starting with "Ri..." before contains matches.
+  const quickSearchResults = useMemo(() => {
+    const q = quickSearch.trim().toLowerCase();
+    if (!q) return [] as InventoryItem[];
+    const inStock = inventory.filter((i) => i.current_qty > 0);
+    const starts: InventoryItem[] = [];
+    const contains: InventoryItem[] = [];
+    for (const i of inStock) {
+      const n = i.item_name.toLowerCase();
+      const id = i.item_id.toLowerCase();
+      if (n.startsWith(q) || id.startsWith(q)) starts.push(i);
+      else if (n.includes(q) || id.includes(q) || i.category.toLowerCase().includes(q)) contains.push(i);
+    }
+    return [...starts, ...contains].slice(0, 8);
+  }, [quickSearch, inventory]);
+
+  // One-tap payment shortcuts. Auto-fills Cash / UPI so their sum equals the
+  // Final Amount — the most common single-owner-store flows.
+  const fillPayment = (mode: "cash" | "upi" | "half") => {
+    if (finalAmount <= 0) return;
+    if (mode === "cash") {
+      setCashAmount(String(finalAmount));
+      setUpiAmount("0");
+    } else if (mode === "upi") {
+      setCashAmount("0");
+      setUpiAmount(String(finalAmount));
+    } else {
+      const c = Math.floor(finalAmount / 2);
+      setCashAmount(String(c));
+      setUpiAmount(String(finalAmount - c));
+    }
+  };
+
+  const addFromQuickSearch = (inv: InventoryItem) => {
+    addItemToCart(inv);
+    setQuickSearch("");
+  };
 
   const totalPickerItems = cart.reduce((s, l) => s + l.qty, 0);
 
@@ -568,13 +640,121 @@ export default function BillingScreen() {
 
         <View style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           <View style={styles.topSection}>
+            {/* Always-visible search — type & tap to add without opening the picker */}
+            <View style={styles.quickSearchBar}>
+              <Ionicons name="search" size={16} color={theme.color.onSurfaceTertiary} />
+              <TextInput
+                testID="quick-search-input"
+                value={quickSearch}
+                onChangeText={setQuickSearch}
+                placeholder="Search item to add"
+                placeholderTextColor={theme.color.onSurfaceTertiary}
+                style={styles.quickSearchInput}
+                autoCorrect={false}
+                autoCapitalize="none"
+                returnKeyType="search"
+                onSubmitEditing={() => {
+                  if (quickSearchResults.length > 0) {
+                    addFromQuickSearch(quickSearchResults[0]);
+                  }
+                }}
+              />
+              {quickSearch.length > 0 && (
+                <Pressable
+                  testID="quick-search-clear"
+                  onPress={() => setQuickSearch("")}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close-circle" size={18} color={theme.color.onSurfaceTertiary} />
+                </Pressable>
+              )}
+            </View>
+
+            {quickSearch.trim().length > 0 && (
+              <View style={styles.quickResults} testID="quick-search-results">
+                {quickSearchResults.length === 0 ? (
+                  <Text style={styles.quickResultsEmpty}>No in-stock items match</Text>
+                ) : (
+                  quickSearchResults.map((it) => {
+                    const inCart = cartQtyFor(it.id);
+                    return (
+                      <Pressable
+                        key={it.id}
+                        testID={`quick-result-${it.item_id}`}
+                        onPress={() => addFromQuickSearch(it)}
+                        style={styles.quickResultRow}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.quickResultName} numberOfLines={1}>
+                            {it.item_name}
+                          </Text>
+                          <Text style={styles.quickResultSub}>
+                            {fmt(it.price)} · stock {it.current_qty}
+                            {inCart > 0 ? ` · in cart ${inCart}` : ""}
+                          </Text>
+                        </View>
+                        <View style={styles.quickResultAdd}>
+                          <Ionicons name="add" size={16} color={theme.color.onBrandPrimary} />
+                        </View>
+                      </Pressable>
+                    );
+                  })
+                )}
+              </View>
+            )}
+
+            {/* Frequent items strip — top sellers, one tap = add */}
+            {quickSearch.trim().length === 0 && topFrequent.length > 0 && (
+              <View style={styles.freqWrap} testID="frequent-strip">
+                <Text style={styles.freqLabel}>Frequent</Text>
+                <FlatList
+                  data={topFrequent}
+                  keyExtractor={(i) => i.id}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.freqRow}
+                  renderItem={({ item }) => {
+                    const inCart = cartQtyFor(item.id);
+                    return (
+                      <Pressable
+                        testID={`frequent-${item.item_id}`}
+                        onPress={() => addItemToCart(item)}
+                        style={[styles.freqChip, inCart > 0 && styles.freqChipActive]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[styles.freqChipName, inCart > 0 && styles.freqChipNameActive]}
+                            numberOfLines={1}
+                          >
+                            {item.item_name}
+                          </Text>
+                          <Text
+                            style={[styles.freqChipPrice, inCart > 0 && styles.freqChipPriceActive]}
+                          >
+                            {fmt(item.price)}
+                          </Text>
+                        </View>
+                        {inCart > 0 ? (
+                          <View style={styles.freqChipBadge}>
+                            <Text style={styles.freqChipBadgeText}>{inCart}</Text>
+                          </View>
+                        ) : (
+                          <Ionicons name="add-circle" size={18} color={theme.color.brandPrimary} />
+                        )}
+                      </Pressable>
+                    );
+                  }}
+                />
+              </View>
+            )}
+
             <Pressable
               testID="add-item-button"
               onPress={openPicker}
               style={styles.addItemBtn}
             >
-              <Ionicons name="add" size={22} color={theme.color.onBrandPrimary} />
-              <Text style={styles.addItemText}>Add Item</Text>
+              <Ionicons name="grid" size={18} color={theme.color.onBrandPrimary} />
+              <Text style={styles.addItemText}>Browse All Items</Text>
             </Pressable>
           </View>
 
@@ -705,6 +885,36 @@ export default function BillingScreen() {
             </Text>
           </View>
 
+          {/* One-tap payment shortcuts */}
+          {finalAmount > 0 && (
+            <View style={styles.payQuickRow} testID="pay-quick-row">
+              <Pressable
+                testID="pay-full-cash"
+                onPress={() => fillPayment("cash")}
+                style={styles.payQuickChip}
+              >
+                <Ionicons name="cash-outline" size={14} color={theme.color.brandPrimary} />
+                <Text style={styles.payQuickChipText}>Full Cash</Text>
+              </Pressable>
+              <Pressable
+                testID="pay-full-upi"
+                onPress={() => fillPayment("upi")}
+                style={styles.payQuickChip}
+              >
+                <Ionicons name="phone-portrait-outline" size={14} color={theme.color.brandPrimary} />
+                <Text style={styles.payQuickChipText}>Full UPI</Text>
+              </Pressable>
+              <Pressable
+                testID="pay-half-half"
+                onPress={() => fillPayment("half")}
+                style={styles.payQuickChip}
+              >
+                <Ionicons name="git-branch-outline" size={14} color={theme.color.brandPrimary} />
+                <Text style={styles.payQuickChipText}>Half / Half</Text>
+              </Pressable>
+            </View>
+          )}
+
           <View style={styles.payRow}>
             <View style={styles.payField}>
               <Text style={styles.label}>Cash</Text>
@@ -762,6 +972,18 @@ export default function BillingScreen() {
               />
               <Text style={styles.statusText}>{status}</Text>
             </View>
+            <Pressable
+              testID="quick-bill-button"
+              onPress={submitWalkIn}
+              disabled={!isValid || submitting}
+              style={[
+                styles.quickBillBtn,
+                (!isValid || submitting) && { opacity: 0.5 },
+              ]}
+            >
+              <Ionicons name="flash" size={16} color={theme.color.brandPrimary} />
+              <Text style={styles.quickBillText}>Quick Bill</Text>
+            </Pressable>
             <Pressable
               testID="complete-bill-button"
               onPress={openCompleteModal}
@@ -1226,11 +1448,127 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    backgroundColor: theme.color.brandPrimary,
-    paddingVertical: 14,
+    backgroundColor: theme.color.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: theme.color.brandPrimary,
+    paddingVertical: 12,
     borderRadius: theme.radius.md,
+    marginTop: theme.spacing.md,
   },
-  addItemText: { color: theme.color.onBrandPrimary, fontWeight: "700", fontSize: 15 },
+  addItemText: { color: theme.color.brandPrimary, fontWeight: "700", fontSize: 14 },
+  // ---- Quick search (always visible, adds to cart) ----
+  quickSearchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: theme.color.surfaceSecondary,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 4,
+  },
+  quickSearchInput: {
+    flex: 1,
+    paddingVertical: 10,
+    color: theme.color.onSurface,
+    fontSize: 15,
+  },
+  quickResults: {
+    marginTop: theme.spacing.sm,
+    backgroundColor: theme.color.surface,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    overflow: "hidden",
+  },
+  quickResultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 10,
+    borderBottomColor: theme.color.divider,
+    borderBottomWidth: 1,
+  },
+  quickResultName: {
+    color: theme.color.onSurface,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  quickResultSub: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  quickResultAdd: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: theme.color.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickResultsEmpty: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 12,
+    textAlign: "center",
+    padding: theme.spacing.md,
+  },
+  // ---- Frequent items strip ----
+  freqWrap: { marginTop: theme.spacing.md },
+  freqLabel: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+  freqRow: { gap: 8, paddingRight: theme.spacing.md },
+  freqChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 140,
+    maxWidth: 180,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    backgroundColor: theme.color.surfaceSecondary,
+  },
+  freqChipActive: {
+    borderColor: theme.color.brandPrimary,
+    backgroundColor: theme.color.brandTertiary,
+  },
+  freqChipName: {
+    color: theme.color.onSurface,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  freqChipNameActive: { color: theme.color.brandPrimary },
+  freqChipPrice: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  freqChipPriceActive: { color: theme.color.onBrandTertiary },
+  freqChipBadge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 4,
+    borderRadius: 11,
+    backgroundColor: theme.color.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  freqChipBadgeText: {
+    color: theme.color.onBrandPrimary,
+    fontSize: 11,
+    fontWeight: "800",
+  },
   centerContent: { 
     flex: 1, 
     alignItems: "center", 
@@ -1327,6 +1665,29 @@ const styles = StyleSheet.create({
   discountTagText: { color: theme.color.brandPrimary, fontSize: 11, fontWeight: "700" },
   payRow: { flexDirection: "row", gap: theme.spacing.md, marginTop: 8 },
   payField: { flex: 1 },
+  payQuickRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 6,
+    marginBottom: 2,
+  },
+  payQuickChip: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 8,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.color.brandPrimary,
+    backgroundColor: theme.color.brandTertiary,
+  },
+  payQuickChipText: {
+    color: theme.color.brandPrimary,
+    fontSize: 11,
+    fontWeight: "700",
+  },
   diff: { fontSize: 12, marginTop: 4 },
   statusRow: {
     flexDirection: "row",
@@ -1354,6 +1715,23 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
   },
   completeText: { color: theme.color.onBrandPrimary, fontWeight: "800", fontSize: 16 },
+  quickBillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.color.brandPrimary,
+    backgroundColor: theme.color.brandTertiary,
+  },
+  quickBillText: {
+    color: theme.color.brandPrimary,
+    fontWeight: "800",
+    fontSize: 13,
+  },
   returningBadge: {
     flexDirection: "row",
     alignItems: "center",
