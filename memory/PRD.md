@@ -146,6 +146,33 @@ Original repo: `https://github.com/ythkdwvd-Iminationz/IminationzPOS` (imported 
   - **Quick Bill button** (`quick-bill-button`) — new secondary button in the Complete-Bill row that submits the bill immediately with empty customer info (walk-in). Skips the customer-details modal entirely. Existing "Complete Bill" still available for when the seller wants to capture mobile/name.
   - `submit()` refactored to optionally accept `{ mobile, name, closeModal }` so the walk-in path reuses the exact same code path as the modal.
 
+## What's been implemented — 2026-02 session (cont'd): WhatsApp community invites
+**Problem reported by user:** When a customer mobile is entered on a bill, automatically add them to the store's WhatsApp community.
+
+**Reality check delivered to user:** WhatsApp platform does not allow apps to silently add a number to a community/group — the recipient must tap an invite link on their own phone. User chose **Option C** (both auto-open on bill + bulk-invite screen) and shared their community link `https://chat.whatsapp.com/DMU6HmjLdQiA0FuQKv1q3v`.
+
+**Fix delivered:**
+- `/app/supabase/migration/whatsapp_invites.sql` (**user must paste into Supabase SQL Editor and run — NOT auto-applied**):
+  - New table `public.whatsapp_invites (mobile pk, sent_at, sent_by_email)` with RLS `authenticated using (true)`.
+  - Seeds `app_settings.whatsapp_community_link` with the user-provided invite link and `app_settings.whatsapp_auto_open = 'true'` (idempotent `ON CONFLICT DO NOTHING`).
+- `src/api/client.ts`:
+  - New `whatsappApi` surface: `getSettings()`, `updateSettings({link?, autoOpen?})`, `getContacts()` (derived from `bills` group-by mobile, left-joined with `whatsapp_invites` for status), `isInvited(mobile)`, `markSent(mobile, email)`, `buildInviteUrl(mobile, name, link)`.
+  - `normalizeIndianMobile()` helper — accepts 10-digit / 91-prefixed / 0-prefixed inputs and returns `91XXXXXXXXXX` for the `wa.me/` URL. Returns null for un-parseable numbers so the row shows a "Bad mobile" badge instead of silently failing.
+- `app/(tabs)/billing.tsx`:
+  - After a successful `submit()` (Complete-Bill path only — Quick Bill / walk-ins are naturally skipped), if the bill has a customer_mobile AND that mobile isn't already in `whatsapp_invites` AND `whatsapp_auto_open` is true, calls `Linking.openURL()` with a pre-filled `wa.me` chat containing the greeting + community link, then optimistically marks the mobile as sent so we don't re-nag on future bills.
+  - Any WhatsApp-side failure is swallowed — never blocks bill completion.
+- `app/whatsapp-contacts.tsx` (**new** stack route, owner-only):
+  - Header shows total / pending / sent counts.
+  - Editable community link field with validation (`chat.whatsapp.com/` prefix required).
+  - Toggle for "Auto-open on new bill".
+  - Search + status filter (All / Pending / Sent).
+  - Per-row **Send** / **Resend** button opens WhatsApp with the pre-filled invite; optimistically marks as sent. Rows with un-parseable mobiles get a "Bad mobile" badge and a disabled Send button.
+  - Employee view: locked, shows "Owner-only feature."
+- `app/(tabs)/sales.tsx`: added a WhatsApp icon in the header (owner-only, testID `sales-wa-contacts`) that navigates to `/whatsapp-contacts`.
+
+**What the user needs to do (one-time, ~10s):**
+1. Paste `/app/supabase/migration/whatsapp_invites.sql` into Supabase SQL Editor → Run.
+
 ## Prioritized backlog / next steps
 - **P0:** Fix the Supabase OTP login blocker (`otp_disabled` for admin@iminationz.app) — re-create/confirm the user in Supabase Authentication so the app can actually be logged into and tested.
 - **P0:** User must run `whole_numbers.sql` (if not already) then `custom_pricing.sql` in Supabase SQL Editor.
