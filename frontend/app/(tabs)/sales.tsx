@@ -74,6 +74,9 @@ export default function SalesScreen() {
     currentMonthRevenue: number;
     lastMonthRevenue: number;
     lastMonthOnePct: number;
+    daysOpen: number;
+    daysOff: number;
+    avgPerDay: number;
   } | null>(null);
   const [monthSummaryLoading, setMonthSummaryLoading] = useState(false);
 
@@ -118,10 +121,25 @@ export default function SalesScreen() {
       ]);
       const currentMonthRevenue = Math.round(curBills.reduce((s, b) => s + Number(b.final_amount), 0));
       const lastMonthRevenue = Math.round(lastBills.reduce((s, b) => s + Number(b.final_amount), 0));
+
+      // Days open = distinct calendar days (1st of month -> today) that have at least one bill.
+      // Days off = remaining days in that span with zero bills.
+      const daysElapsed = (() => {
+        const [y, m, d] = cur.to.split("-").map(Number);
+        return d; // today's day-of-month = number of days elapsed so far this month
+      })();
+      const uniqueDaysWithSales = new Set(curBills.map((b) => b.date)).size;
+      const daysOpen = uniqueDaysWithSales;
+      const daysOff = Math.max(daysElapsed - uniqueDaysWithSales, 0);
+      const avgPerDay = daysOpen > 0 ? Math.round(currentMonthRevenue / daysOpen) : 0;
+
       setMonthSummary({
         currentMonthRevenue,
         lastMonthRevenue,
         lastMonthOnePct: Math.round(lastMonthRevenue * 0.01), // Modified: Force clean integer matching
+        daysOpen,
+        daysOff,
+        avgPerDay,
       });
     } catch {
       setMonthSummary(null);
@@ -209,6 +227,30 @@ export default function SalesScreen() {
                     </Text>
                   </View>
                 </View>
+
+                <View style={styles.monthSummaryRow}>
+                  <View style={styles.monthSummaryCol}>
+                    <Text style={styles.monthSummaryLabel}>Days Open</Text>
+                    <Text testID="sales-days-open" style={styles.monthSummaryValue}>
+                      {monthSummary.daysOpen}
+                    </Text>
+                  </View>
+                  <View style={styles.monthSummaryDivider} />
+                  <View style={styles.monthSummaryCol}>
+                    <Text style={styles.monthSummaryLabel}>Days Off</Text>
+                    <Text testID="sales-days-off" style={styles.monthSummaryValue}>
+                      {monthSummary.daysOff}
+                    </Text>
+                  </View>
+                  <View style={styles.monthSummaryDivider} />
+                  <View style={styles.monthSummaryCol}>
+                    <Text style={styles.monthSummaryLabel}>Avg / Day</Text>
+                    <Text testID="sales-avg-per-day" style={styles.monthSummaryValue}>
+                      {formatINRPlain(monthSummary.avgPerDay)}
+                    </Text>
+                  </View>
+                </View>
+
                 <View style={styles.onePctBox}>
                   <Text style={styles.onePctLabel}>1% of Last Month's Revenue</Text>
                   <Text testID="sales-last-month-one-pct" style={styles.onePctValue}>
