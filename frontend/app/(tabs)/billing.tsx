@@ -63,6 +63,7 @@ export default function BillingScreen() {
   const [cashAmount, setCashAmount] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [cartSheetOpen, setCartSheetOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   // Inline "quick search" on the main billing screen — always visible, adds
@@ -784,94 +785,33 @@ export default function BillingScreen() {
             </Pressable>
           </View>
 
-          <View style={{ flex: 1, minHeight: 0 }}>
-            {loading ? (
-              <View style={styles.centerContent}>
-                <ActivityIndicator color={theme.color.brandPrimary} />
+          <Pressable
+            testID="cart-tab"
+            onPress={() => setCartSheetOpen(true)}
+            style={styles.cartTab}
+          >
+            <View style={styles.cartTabLeft}>
+              <View style={styles.cartTabCount}>
+                <Text style={styles.cartTabCountText}>{cart.length}</Text>
               </View>
-            ) : cart.length === 0 ? (
-              <View style={styles.centerContent}>
-                <Ionicons name="cart-outline" size={36} color={theme.color.onSurfaceTertiary} />
-                <Text style={styles.emptyText}>No items yet. Tap Add Item.</Text>
-              </View>
-            ) : (
-              <FlatList
-                data={cart}
-                keyExtractor={(l) => l.inv.id}
-                contentContainerStyle={styles.itemsListContent}
-                keyboardShouldPersistTaps="handled"
-                renderItem={({ item: l }) => (
-                  <View key={l.inv.id} style={styles.line} testID={`cart-line-${l.inv.item_id}`}>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                        <Text style={styles.lineName}>{l.inv.item_name}</Text>
-                        {l.customPrice != null && (
-                          <View testID={`custom-price-tag-${l.inv.item_id}`} style={styles.customTag}>
-                            <Text style={styles.customTagText}>Custom</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={styles.lineSub}>
-                        {fmt(effectivePrice(l))} · stock{" "}
-                        <Text
-                          style={{
-                            color:
-                              l.inv.current_qty <= 5
-                                ? theme.color.error
-                                : theme.color.success,
-                            fontWeight: "700",
-                          }}
-                        >
-                          {l.inv.current_qty}
-                        </Text>
-                      </Text>
-                    </View>
-                    {isOwner && (
-                      <Pressable
-                        testID={`edit-price-${l.inv.item_id}`}
-                        onPress={() => openCustomPriceModal(l.inv.id)}
-                        hitSlop={8}
-                        style={styles.editPriceBtn}
-                      >
-                        <Ionicons name="pricetag-outline" size={16} color={theme.color.brandPrimary} />
-                      </Pressable>
-                    )}
-                    <View style={styles.qtyBox}>
-                      <Pressable
-                        testID={`qty-dec-${l.inv.item_id}`}
-                        onPress={() => updateQty(l.inv.id, -1)}
-                        style={styles.qtyBtn}
-                      >
-                        <Ionicons name="remove" size={16} color={theme.color.onSurface} />
-                      </Pressable>
-                      <TextInput
-                        testID={`qty-input-${l.inv.item_id}`}
-                        value={String(l.qty)}
-                        onChangeText={(v) => setQty(l.inv.id, v)}
-                        keyboardType="number-pad"
-                        style={styles.qtyInput}
-                      />
-                      <Pressable
-                        testID={`qty-inc-${l.inv.item_id}`}
-                        onPress={() => updateQty(l.inv.id, 1)}
-                        style={styles.qtyBtn}
-                      >
-                        <Ionicons name="add" size={16} color={theme.color.onSurface} />
-                      </Pressable>
-                    </View>
-                    <Text style={styles.lineTotal}>{fmt(effectivePrice(l) * l.qty)}</Text>
-                    <Pressable
-                      testID={`remove-${l.inv.item_id}`}
-                      onPress={() => removeLine(l.inv.id)}
-                      hitSlop={8}
-                    >
-                      <Ionicons name="close-circle" size={20} color={theme.color.error} />
-                    </Pressable>
-                  </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cartTabLabel}>
+                  {cart.length === 0 ? "Cart is empty" : "View cart"}
+                </Text>
+                {cart.length > 0 && (
+                  <Text style={styles.cartTabSub} numberOfLines={1}>
+                    {cart.map((l) => l.inv.item_name).join(", ")}
+                  </Text>
                 )}
-              />
-            )}
+              </View>
+            </View>
+            <View style={styles.cartTabRight}>
+              <Text style={styles.cartTabAmount}>{fmt(gross)}</Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.color.onSurfaceTertiary} />
+            </View>
+          </Pressable>
 
+          <View style={{ flex: 1, minHeight: 0 }}>
             {error && (
               <View style={styles.errorContainer}>
                 <Text testID="bill-error" style={styles.error}>
@@ -881,6 +821,133 @@ export default function BillingScreen() {
             )}
           </View>
         </View>
+
+        <Modal
+          visible={cartSheetOpen}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setCartSheetOpen(false)}
+        >
+          <Pressable
+            style={styles.cartSheetBackdrop}
+            onPress={() => setCartSheetOpen(false)}
+          >
+            <Pressable style={styles.cartSheetContent} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.cartSheetHandle} />
+              <View style={styles.cartSheetHeader}>
+                <Text style={styles.cartSheetTitle}>
+                  Cart · {cart.length} item{cart.length === 1 ? "" : "s"}
+                </Text>
+                <Pressable
+                  testID="cart-sheet-close"
+                  onPress={() => setCartSheetOpen(false)}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={22} color={theme.color.onSurfaceTertiary} />
+                </Pressable>
+              </View>
+
+              {cart.length === 0 ? (
+                <View style={styles.centerContent}>
+                  <Ionicons name="cart-outline" size={36} color={theme.color.onSurfaceTertiary} />
+                  <Text style={styles.emptyText}>No items yet. Tap Add Item.</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={cart}
+                  keyExtractor={(l) => l.inv.id}
+                  contentContainerStyle={styles.itemsListContent}
+                  keyboardShouldPersistTaps="handled"
+                  renderItem={({ item: l }) => (
+                    <View key={l.inv.id} style={styles.line} testID={`cart-line-${l.inv.item_id}`}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                          <Text style={styles.lineName}>{l.inv.item_name}</Text>
+                          {l.customPrice != null && (
+                            <View testID={`custom-price-tag-${l.inv.item_id}`} style={styles.customTag}>
+                              <Text style={styles.customTagText}>Custom</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={styles.lineSub}>
+                          {fmt(effectivePrice(l))} · stock{" "}
+                          <Text
+                            style={{
+                              color:
+                                l.inv.current_qty <= 5
+                                  ? theme.color.error
+                                  : theme.color.success,
+                              fontWeight: "700",
+                            }}
+                          >
+                            {l.inv.current_qty}
+                          </Text>
+                        </Text>
+                      </View>
+                      {isOwner && (
+                        <Pressable
+                          testID={`edit-price-${l.inv.item_id}`}
+                          onPress={() => openCustomPriceModal(l.inv.id)}
+                          hitSlop={8}
+                          style={styles.editPriceBtn}
+                        >
+                          <Ionicons name="pricetag-outline" size={16} color={theme.color.brandPrimary} />
+                        </Pressable>
+                      )}
+                      <View style={styles.qtyBox}>
+                        <Pressable
+                          testID={`qty-dec-${l.inv.item_id}`}
+                          onPress={() => updateQty(l.inv.id, -1)}
+                          style={styles.qtyBtn}
+                        >
+                          <Ionicons name="remove" size={16} color={theme.color.onSurface} />
+                        </Pressable>
+                        <TextInput
+                          testID={`qty-input-${l.inv.item_id}`}
+                          value={String(l.qty)}
+                          onChangeText={(v) => setQty(l.inv.id, v)}
+                          keyboardType="number-pad"
+                          style={styles.qtyInput}
+                        />
+                        <Pressable
+                          testID={`qty-inc-${l.inv.item_id}`}
+                          onPress={() => updateQty(l.inv.id, 1)}
+                          style={styles.qtyBtn}
+                        >
+                          <Ionicons name="add" size={16} color={theme.color.onSurface} />
+                        </Pressable>
+                      </View>
+                      <Text style={styles.lineTotal}>{fmt(effectivePrice(l) * l.qty)}</Text>
+                      <Pressable
+                        testID={`remove-${l.inv.item_id}`}
+                        onPress={() => removeLine(l.inv.id)}
+                        hitSlop={8}
+                      >
+                        <Ionicons name="close-circle" size={20} color={theme.color.error} />
+                      </Pressable>
+                    </View>
+                  )}
+                />
+              )}
+
+              {cart.length > 0 && (
+                <View style={styles.cartSheetFooter}>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabelBig}>Total</Text>
+                    <Text style={styles.summaryValueBig}>{fmt(gross)}</Text>
+                  </View>
+                  <Pressable
+                    testID="cart-sheet-done"
+                    onPress={() => setCartSheetOpen(false)}
+                    style={styles.cartSheetDoneBtn}
+                  >
+                    <Text style={styles.cartSheetDoneText}>Done</Text>
+                  </Pressable>
+                </View>
+              )}
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         <View style={styles.paymentPanel}>
           <View style={styles.summaryRow}>
@@ -1451,6 +1518,112 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.md,
     borderBottomColor: theme.color.divider,
     borderBottomWidth: 1,
+  },
+  cartTab: {
+    marginHorizontal: theme.spacing.lg,
+    marginTop: theme.spacing.md,
+    backgroundColor: theme.color.onSurface,
+    borderRadius: theme.radius.lg,
+    paddingVertical: 12,
+    paddingHorizontal: theme.spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing.sm,
+  },
+  cartTabLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.sm,
+    flex: 1,
+  },
+  cartTabCount: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: theme.color.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cartTabCountText: {
+    color: theme.color.onBrandPrimary,
+    fontWeight: "800",
+    fontSize: 12,
+  },
+  cartTabLabel: {
+    color: theme.color.surface,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  cartTabSub: {
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  cartTabRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  cartTabAmount: {
+    color: theme.color.brandPrimary,
+    fontWeight: "800",
+    fontSize: 15,
+  },
+  cartSheetBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  cartSheetContent: {
+    backgroundColor: theme.color.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopColor: theme.color.brandPrimary,
+    borderTopWidth: 2,
+    maxHeight: "80%",
+  },
+  cartSheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.color.border,
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  cartSheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.md,
+    borderBottomColor: theme.color.divider,
+    borderBottomWidth: 1,
+  },
+  cartSheetTitle: {
+    color: theme.color.onSurface,
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  cartSheetFooter: {
+    padding: theme.spacing.lg,
+    borderTopColor: theme.color.divider,
+    borderTopWidth: 1,
+    backgroundColor: theme.color.surfaceSecondary,
+  },
+  cartSheetDoneBtn: {
+    marginTop: theme.spacing.md,
+    backgroundColor: theme.color.brandPrimary,
+    paddingVertical: 14,
+    borderRadius: theme.radius.md,
+    alignItems: "center",
+  },
+  cartSheetDoneText: {
+    color: theme.color.onBrandPrimary,
+    fontWeight: "800",
+    fontSize: 15,
   },
   label: {
     color: theme.color.onSurfaceTertiary,
