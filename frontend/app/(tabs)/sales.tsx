@@ -136,10 +136,19 @@ export default function SalesScreen() {
       // a day with a stray bill or two still counts as off if the shop itself
       // was closed. Unanswered days (app not opened that day) count toward
       // neither.
-      const dayStatuses = await api.getDayStatusRange(cur.from, cur.to);
-      const statusValues = Object.values(dayStatuses);
-      const daysOpen = statusValues.filter((s) => s === "open").length;
-      const daysOff = statusValues.filter((s) => s === "closed").length;
+      // Isolated in its own try/catch: if this table/query fails for any
+      // reason, it should not take down the revenue figures above, which
+      // already loaded successfully.
+      let daysOpen = 0;
+      let daysOff = 0;
+      try {
+        const dayStatuses = await api.getDayStatusRange(cur.from, cur.to);
+        const statusValues = Object.values(dayStatuses);
+        daysOpen = statusValues.filter((s) => s === "open").length;
+        daysOff = statusValues.filter((s) => s === "closed").length;
+      } catch (dayStatusErr) {
+        console.warn("day_status range fetch failed:", dayStatusErr);
+      }
       const avgPerDay = daysOpen > 0 ? Math.round(currentMonthRevenue / daysOpen) : 0;
 
       setMonthSummary({
