@@ -122,15 +122,20 @@ export default function SalesScreen() {
       const currentMonthRevenue = Math.round(curBills.reduce((s, b) => s + Number(b.final_amount), 0));
       const lastMonthRevenue = Math.round(lastBills.reduce((s, b) => s + Number(b.final_amount), 0));
 
-      // Days open = distinct calendar days (1st of month -> today) that have at least one bill.
-      // Days off = remaining days in that span with zero bills.
+      // Days open = distinct calendar days (1st of month -> today) where that day's total
+      // sales reached the business's minimum daily threshold (₹4500). A day with some sales
+      // below the threshold still counts as "off".
+      const DAILY_OPEN_THRESHOLD = 4500;
       const daysElapsed = (() => {
         const [y, m, d] = cur.to.split("-").map(Number);
         return d; // today's day-of-month = number of days elapsed so far this month
       })();
-      const uniqueDaysWithSales = new Set(curBills.map((b) => b.date)).size;
-      const daysOpen = uniqueDaysWithSales;
-      const daysOff = Math.max(daysElapsed - uniqueDaysWithSales, 0);
+      const salesByDay = new Map<string, number>();
+      for (const b of curBills) {
+        salesByDay.set(b.date, (salesByDay.get(b.date) || 0) + Number(b.final_amount));
+      }
+      const daysOpen = Array.from(salesByDay.values()).filter((total) => total >= DAILY_OPEN_THRESHOLD).length;
+      const daysOff = Math.max(daysElapsed - daysOpen, 0);
       const avgPerDay = daysOpen > 0 ? Math.round(currentMonthRevenue / daysOpen) : 0;
 
       setMonthSummary({
