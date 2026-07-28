@@ -1045,6 +1045,47 @@ export const whatsappApi = {
     const text = `${greeting}, thank you for shopping at ${STORE_NAME}! Join our WhatsApp community for exclusive offers and new arrivals: ${link}`;
     return `https://wa.me/${normalized}?text=${encodeURIComponent(text)}`;
   },
+
+  // Day open/closed status — shared across devices via Supabase so the
+  // "is the shop open today?" answer is consistent no matter which phone
+  // asked or answered it.
+  getDayStatus: async (dateISO: string): Promise<"open" | "closed" | null> => {
+    const { data, error } = await supabase
+      .from("day_status")
+      .select("status")
+      .eq("day_date", dateISO)
+      .maybeSingle();
+    if (error && (error as any).code !== "PGRST116") throw new Error(error.message);
+    return (data?.status as "open" | "closed" | undefined) ?? null;
+  },
+
+  setDayStatus: async (
+    dateISO: string,
+    status: "open" | "closed",
+    setByEmail?: string | null
+  ): Promise<void> => {
+    const { error } = await supabase
+      .from("day_status")
+      .upsert([{ day_date: dateISO, status, set_by: setByEmail || null }], { onConflict: "day_date" });
+    if (error) throw new Error(error.message);
+  },
+
+  getDayStatusRange: async (
+    fromISO: string,
+    toISO: string
+  ): Promise<Record<string, "open" | "closed">> => {
+    const { data, error } = await supabase
+      .from("day_status")
+      .select("day_date,status")
+      .gte("day_date", fromISO)
+      .lte("day_date", toISO);
+    if (error) throw new Error(error.message);
+    const out: Record<string, "open" | "closed"> = {};
+    for (const row of data || []) {
+      out[(row as any).day_date] = (row as any).status;
+    }
+    return out;
+  },
 };
 
 // ---------- utils ----------

@@ -18,6 +18,7 @@ import { api, Bill, InventoryItem } from "@/src/api/client";
 import { getInventory, invalidateInventory } from "@/src/api/cache";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useRole } from "@/src/hooks/use-role";
+import { supabase } from "@/src/api/supabase";
 
 const OWNER_FILTERS = [
   { id: "today", label: "Today" },
@@ -79,6 +80,12 @@ export default function SalesScreen() {
     avgPerDay: number;
   } | null>(null);
   const [monthSummaryLoading, setMonthSummaryLoading] = useState(false);
+  const [dayEditorOpen, setDayEditorOpen] = useState(false);
+  const [dayEditorLoading, setDayEditorLoading] = useState(false);
+  const [dayEditorMap, setDayEditorMap] = useState<Record<string, "open" | "closed">>({});
+  const [dayEditorSavingKey, setDayEditorSavingKey] = useState<string | null>(null);
+  const [dayEditorStatuses, setDayEditorStatuses] = useState<Record<string, "open" | "closed">>({});
+  const [dayEditorSaving, setDayEditorSaving] = useState<string | null>(null);
 
   const load = useCallback(
     async (f: string, s: string, sd: string, ed: string) => {
@@ -122,20 +129,17 @@ export default function SalesScreen() {
       const currentMonthRevenue = Math.round(curBills.reduce((s, b) => s + Number(b.final_amount), 0));
       const lastMonthRevenue = Math.round(lastBills.reduce((s, b) => s + Number(b.final_amount), 0));
 
-      // Days open = distinct calendar days (1st of month -> today) where that day's total
-      // sales reached the business's minimum daily threshold (₹4500). A day with some sales
-      // below the threshold still counts as "off".
-      const DAILY_OPEN_THRESHOLD = 4500;
-      const daysElapsed = (() => {
-        const [y, m, d] = cur.to.split("-").map(Number);
-        return d; // today's day-of-month = number of days elapsed so far this month
-      })();
-      const salesByDay = new Map<string, number>();
-      for (const b of curBills) {
-        salesByDay.set(b.date, (salesByDay.get(b.date) || 0) + Number(b.final_amount));
-      }
-      const daysOpen = Array.from(salesByDay.values()).filter((total) => total >= DAILY_OPEN_THRESHOLD).length;
-      const daysOff = Math.max(daysElapsed - daysOpen, 0);
+      // Days open/off come from the explicit daily open/closed response captured
+      // by the DayOpenGate popup (shared across devices via Supabase, answered
+      // once per calendar day and remembered). Sales volume doesn't factor in —
+      // a day with zero sales still counts as open if the shop was opened, and
+      // a day with a stray bill or two still counts as off if the shop itself
+      // was closed. Unanswered days (app not opened that day) count toward
+      // neither.
+      const dayStatuses = await api.getDayStatusRange(cur.from, cur.to);
+      const statusValues = Object.values(dayStatuses);
+      const daysOpen = statusValues.filter((s) => s === "open").length;
+      const daysOff = statusValues.filter((s) => s === "closed").length;
       const avgPerDay = daysOpen > 0 ? Math.round(currentMonthRevenue / daysOpen) : 0;
 
       setMonthSummary({
@@ -151,6 +155,50 @@ export default function SalesScreen() {
     } finally {
       setMonthSummaryLoading(false);
     }
+  }, []);
+
+  const openDayEditor = useCallback(async () => {
+    setDayEditorOpen(true);
+    setDayEditorLoading(true);
+    try {
+      const cur = currentMonthRange();
+      const map = await api.getDayStatusRange(cur.from, cur.to);
+      setDayEditorMap(map);
+    } catch {
+      setDayEditorMap({});
+    } finally {
+      setDayEditorLoading(false);
+    }
+  }, []);
+
+  const toggleDayStatus = useCallback(
+    async (dateKey: string, next: "open" | "closed") => {
+      setDayEditorSavingKey(dateKey);
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        await api.setDayStatus(dateKey, next, session?.user?.email ?? null);
+        setDayEditorMap((prev) => ({ ...prev, [dateKey]: next }));
+        // Keep the summary card in sync without a full reload.
+        loadMonthSummary();
+      } catch {
+        // Leave as-is; user can retry the tap.
+      } finally {
+        setDayEditorSavingKey(null);
+      }
+    },
+    [loadMonthSummary]
+  );
+
+  const currentMonthDayKeys = useCallback(() => {
+    const cur = currentMonthRange();
+    const [y, m, dToday] = cur.to.split("-").map(Number);
+    const keys: string[] = [];
+    for (let day = dToday; day >= 1; day--) {
+      keys.push(`${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+    }
+    return keys;
   }, []);
 
   useFocusEffect(
@@ -255,6 +303,16 @@ export default function SalesScreen() {
                     </Text>
                   </View>
                 </View>
+
+                <Pressable
+                  testID="edit-day-status-link"
+                  onPress={openDayEditor}
+                  style={styles.editDaysLink}
+                  hitSlop={8}
+                >
+                  <Ionicons name="calendar-outline" size={13} color={theme.color.brandPrimary} />
+                  <Text style={styles.editDaysLinkText}>Edit days</Text>
+                </Pressable>
 
                 <View style={styles.onePctBox}>
                   <Text style={styles.onePctLabel}>1% of Last Month's Revenue</Text>
@@ -485,6 +543,16 @@ export default function SalesScreen() {
           setExchangeBill(null);
           load(isEmployee ? "today" : filter, isEmployee ? "" : search, start, end);
         }}
+      />
+
+      <DayStatusEditorModal
+        visible={dayEditorOpen}
+        loading={dayEditorLoading}
+        dayKeys={currentMonthDayKeys()}
+        statusMap={dayEditorMap}
+        savingKey={dayEditorSavingKey}
+        onToggle={toggleDayStatus}
+        onClose={() => setDayEditorOpen(false)}
       />
     </SafeAreaView>
   );
@@ -910,6 +978,104 @@ function ExchangeModal({
   );
 }
 
+function formatDayLabel(dateKey: string): string {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const isToday = dateKey === todayISO();
+  const label = date.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+  return isToday ? `${label} (Today)` : label;
+}
+
+function DayStatusEditorModal({
+  visible,
+  loading,
+  dayKeys,
+  statusMap,
+  savingKey,
+  onToggle,
+  onClose,
+}: {
+  visible: boolean;
+  loading: boolean;
+  dayKeys: string[];
+  statusMap: Record<string, "open" | "closed">;
+  savingKey: string | null;
+  onToggle: (dateKey: string, next: "open" | "closed") => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.dayEditorBackdrop}>
+        <View style={styles.dayEditorSheet}>
+          <View style={styles.dayEditorHeader}>
+            <Text style={styles.dayEditorTitle}>Edit Day Status</Text>
+            <Pressable testID="day-editor-close" onPress={onClose} hitSlop={8}>
+              <Ionicons name="close" size={22} color={theme.color.onSurfaceTertiary} />
+            </Pressable>
+          </View>
+
+          {loading ? (
+            <View style={{ padding: theme.spacing.xl, alignItems: "center" }}>
+              <ActivityIndicator color={theme.color.brandPrimary} />
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={{ paddingBottom: theme.spacing.xl }}>
+              {dayKeys.map((key) => {
+                const status = statusMap[key];
+                const isSaving = savingKey === key;
+                return (
+                  <View key={key} style={styles.dayEditorRow} testID={`day-editor-row-${key}`}>
+                    <Text style={styles.dayEditorDate}>{formatDayLabel(key)}</Text>
+                    <View style={styles.dayEditorBtns}>
+                      <Pressable
+                        testID={`day-editor-open-${key}`}
+                        disabled={isSaving}
+                        onPress={() => onToggle(key, "open")}
+                        style={[
+                          styles.dayEditorPill,
+                          status === "open" && styles.dayEditorPillOpenActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayEditorPillText,
+                            status === "open" && styles.dayEditorPillTextActive,
+                          ]}
+                        >
+                          Open
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        testID={`day-editor-closed-${key}`}
+                        disabled={isSaving}
+                        onPress={() => onToggle(key, "closed")}
+                        style={[
+                          styles.dayEditorPill,
+                          status === "closed" && styles.dayEditorPillClosedActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayEditorPillText,
+                            status === "closed" && styles.dayEditorPillTextActive,
+                          ]}
+                        >
+                          Closed
+                        </Text>
+                      </Pressable>
+                      {isSaving && <ActivityIndicator size="small" color={theme.color.brandPrimary} />}
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.color.surface },
   header: {
@@ -1220,6 +1386,85 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  editDaysLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: theme.spacing.sm,
+    alignSelf: "flex-start",
+  },
+  editDaysLinkText: {
+    color: theme.color.brandPrimary,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  dayEditorBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+  },
+  dayEditorSheet: {
+    backgroundColor: theme.color.surface,
+    borderTopLeftRadius: theme.radius.lg,
+    borderTopRightRadius: theme.radius.lg,
+    maxHeight: "80%",
+  },
+  dayEditorHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    borderBottomColor: theme.color.divider,
+    borderBottomWidth: 1,
+  },
+  dayEditorTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: theme.color.onSurface,
+  },
+  dayEditorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.sm + 2,
+    borderBottomColor: theme.color.divider,
+    borderBottomWidth: 1,
+  },
+  dayEditorDate: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.color.onSurface,
+  },
+  dayEditorBtns: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.xs,
+  },
+  dayEditorPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.color.divider,
+  },
+  dayEditorPillOpenActive: {
+    backgroundColor: theme.color.brandPrimary,
+    borderColor: theme.color.brandPrimary,
+  },
+  dayEditorPillClosedActive: {
+    backgroundColor: theme.color.onSurfaceTertiary,
+    borderColor: theme.color.onSurfaceTertiary,
+  },
+  dayEditorPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.color.onSurfaceSecondary,
+  },
+  dayEditorPillTextActive: {
+    color: "#FFFFFF",
   },
   onePctLabel: {
     color: theme.color.onSurfaceSecondary,

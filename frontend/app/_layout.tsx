@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { RoleProvider } from "@/src/hooks/use-role";
+import { DayOpenGate } from "@/app/components/DayOpenGate";
 
 LogBox.ignoreAllLogs(true);
 
@@ -28,6 +29,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <RoleProvider>
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0D0D0D" } }} />
+          <DayOpenGate />
         </RoleProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
