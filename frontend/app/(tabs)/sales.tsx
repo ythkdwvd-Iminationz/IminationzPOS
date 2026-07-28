@@ -169,20 +169,25 @@ export default function SalesScreen() {
   const openDayEditor = useCallback(async () => {
     setDayEditorOpen(true);
     setDayEditorLoading(true);
+    setDayEditorError(null);
     try {
       const cur = currentMonthRange();
       const map = await api.getDayStatusRange(cur.from, cur.to);
       setDayEditorMap(map);
-    } catch {
+    } catch (e: any) {
       setDayEditorMap({});
+      setDayEditorError(e?.message || "Couldn't load day statuses.");
     } finally {
       setDayEditorLoading(false);
     }
   }, []);
 
+  const [dayEditorError, setDayEditorError] = useState<string | null>(null);
+
   const toggleDayStatus = useCallback(
     async (dateKey: string, next: "open" | "closed") => {
       setDayEditorSavingKey(dateKey);
+      setDayEditorError(null);
       try {
         const {
           data: { session },
@@ -191,8 +196,8 @@ export default function SalesScreen() {
         setDayEditorMap((prev) => ({ ...prev, [dateKey]: next }));
         // Keep the summary card in sync without a full reload.
         loadMonthSummary();
-      } catch {
-        // Leave as-is; user can retry the tap.
+      } catch (e: any) {
+        setDayEditorError(e?.message || "Couldn't save. Try again.");
       } finally {
         setDayEditorSavingKey(null);
       }
@@ -560,6 +565,7 @@ export default function SalesScreen() {
         dayKeys={currentMonthDayKeys()}
         statusMap={dayEditorMap}
         savingKey={dayEditorSavingKey}
+        error={dayEditorError}
         onToggle={toggleDayStatus}
         onClose={() => setDayEditorOpen(false)}
       />
@@ -1001,6 +1007,7 @@ function DayStatusEditorModal({
   dayKeys,
   statusMap,
   savingKey,
+  error,
   onToggle,
   onClose,
 }: {
@@ -1009,6 +1016,7 @@ function DayStatusEditorModal({
   dayKeys: string[];
   statusMap: Record<string, "open" | "closed">;
   savingKey: string | null;
+  error: string | null;
   onToggle: (dateKey: string, next: "open" | "closed") => void;
   onClose: () => void;
 }) {
@@ -1022,6 +1030,14 @@ function DayStatusEditorModal({
               <Ionicons name="close" size={22} color={theme.color.onSurfaceTertiary} />
             </Pressable>
           </View>
+
+          {error && (
+            <View style={styles.dayEditorErrorBox}>
+              <Text testID="day-editor-error" style={styles.dayEditorErrorText}>
+                {error}
+              </Text>
+            </View>
+          )}
 
           {loading ? (
             <View style={{ padding: theme.spacing.xl, alignItems: "center" }}>
@@ -1432,6 +1448,18 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "800",
     color: theme.color.onSurface,
+  },
+  dayEditorErrorBox: {
+    marginHorizontal: theme.spacing.lg,
+    marginTop: theme.spacing.sm,
+    padding: theme.spacing.sm,
+    borderRadius: theme.radius.md,
+    backgroundColor: "#FBE9E7",
+  },
+  dayEditorErrorText: {
+    color: theme.color.error,
+    fontSize: 12,
+    fontWeight: "600",
   },
   dayEditorRow: {
     flexDirection: "row",
