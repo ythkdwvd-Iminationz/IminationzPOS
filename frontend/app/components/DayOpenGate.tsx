@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { theme } from "@/src/theme";
@@ -21,32 +21,45 @@ export function DayOpenGate() {
   const [visible, setVisible] = useState(false);
   const [dateISO, setDateISO] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const resolvedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      // Only prompt once a user is actually logged in — this table requires
-      // an authenticated session per its RLS policy.
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session || cancelled) return;
 
+    const checkToday = async (hasSession: boolean) => {
+      if (!hasSession || cancelled || resolvedRef.current) return;
       const today = todayISO();
       try {
         const existing = await api.getDayStatus(today);
         if (cancelled) return;
+        resolvedRef.current = true;
         if (existing === null) {
           setDateISO(today);
           setVisible(true);
         }
       } catch {
         // If the check fails (offline, table not migrated yet, etc.) skip
-        // the popup rather than blocking the app.
+        // the popup rather than blocking the app — leave resolvedRef false
+        // so a later auth event (e.g. after reconnecting) can retry.
       }
-    })();
+    };
+
+    // Cover the case where a session already exists when this mounts
+    // (app reopened while still logged in).
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      checkToday(!!session);
+    });
+
+    // Cover the case where login happens *after* this component mounts
+    // (fresh app start, user not yet authenticated) — without this, the
+    // popup would only ever be checked once, before login, and never again.
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      checkToday(!!session);
+    });
+
     return () => {
       cancelled = true;
+      sub.subscription.unsubscribe();
     };
   }, []);
 
