@@ -114,6 +114,12 @@ export interface CustomerInfo {
   last_name: string | null;
 }
 
+export interface CustomerSuggestion {
+  mobile: string;
+  name: string | null;
+  total_spent: number; // Whole Number
+}
+
 export interface CategoryRow {
   category: string;
   qty_sold: number;
@@ -533,6 +539,43 @@ export const api = {
       last_visit: list[0].date,
       last_name,
     };
+  },
+
+  // Partial-match customer search as the user types a mobile number.
+  // Groups past bills by mobile so each matching customer appears once,
+  // with their most recent name and lifetime spend.
+  searchCustomers: async (partialMobile: string): Promise<CustomerSuggestion[]> => {
+    const clean = partialMobile.trim();
+    if (clean.length < 3) return [];
+    const { data, error } = await supabase
+      .from("bills")
+      .select("customer_mobile,customer_name,final_amount,iso")
+      .ilike("customer_mobile", `%${clean}%`)
+      .not("customer_mobile", "is", null)
+      .order("iso", { ascending: false })
+      .limit(200); // cap raw rows scanned; grouped/sliced to 5 below
+    if (error) throw new Error(error.message);
+    const byMobile = new Map<string, { name: string | null; total: number; lastIso: string }>();
+    for (const row of data || []) {
+      const m = (row as any).customer_mobile as string;
+      if (!m) continue;
+      const existing = byMobile.get(m);
+      const amt = Number((row as any).final_amount) || 0;
+      if (existing) {
+        existing.total += amt;
+        if (!existing.name && (row as any).customer_name) existing.name = (row as any).customer_name;
+      } else {
+        byMobile.set(m, { name: (row as any).customer_name || null, total: amt, lastIso: (row as any).iso });
+      }
+    }
+    return Array.from(byMobile.entries())
+      .sort((a, b) => (a[1].lastIso < b[1].lastIso ? 1 : -1))
+      .slice(0, 5)
+      .map(([mobile, v]) => ({
+        mobile,
+        name: v.name,
+        total_spent: toWholeNumber(v.total),
+      }));
   },
 
   // WhatsApp closing

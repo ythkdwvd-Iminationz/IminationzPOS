@@ -15,7 +15,7 @@ import * as Linking from "expo-linking";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, InventoryItem, CustomerInfo, logout, settingsApi, BillingConfig, DiscountType, whatsappApi } from "@/src/api/client";
+import { api, InventoryItem, CustomerInfo, CustomerSuggestion, logout, settingsApi, BillingConfig, DiscountType, whatsappApi } from "@/src/api/client";
 import { getInventory, peekInventory, invalidateInventory } from "@/src/api/cache";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useDraftBilling } from "@/src/draft/useDraftBilling";
@@ -88,6 +88,16 @@ export default function BillingScreen() {
   const [tempCustomerMobile, setTempCustomerMobile] = useState("");
   const [tempCustomerName, setTempCustomerName] = useState("");
   const [tempCustomerInfo, setTempCustomerInfo] = useState<CustomerInfo | null>(null);
+  const [customerSuggestions, setCustomerSuggestions] = useState<CustomerSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsVisible, setSuggestionsVisible] = useState(false);
+  const suggestionsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (suggestionsDebounceRef.current) clearTimeout(suggestionsDebounceRef.current);
+    };
+  }, []);
 
   const [customPriceInvId, setCustomPriceInvId] = useState<string | null>(null);
   const [customPriceInput, setCustomPriceInput] = useState("");
@@ -447,6 +457,39 @@ export default function BillingScreen() {
     }
   };
 
+  const onMobileChangeText = (raw: string) => {
+    const digits = raw.replace(/[^0-9]/g, "");
+    setTempCustomerMobile(digits);
+    setTempCustomerInfo(null);
+
+    if (suggestionsDebounceRef.current) clearTimeout(suggestionsDebounceRef.current);
+    if (digits.length < 3) {
+      setCustomerSuggestions([]);
+      setSuggestionsVisible(false);
+      return;
+    }
+    setSuggestionsVisible(true);
+    setSuggestionsLoading(true);
+    suggestionsDebounceRef.current = setTimeout(async () => {
+      try {
+        const results = await api.searchCustomers(digits);
+        setCustomerSuggestions(results);
+      } catch {
+        setCustomerSuggestions([]);
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    }, 300);
+  };
+
+  const selectCustomerSuggestion = (s: CustomerSuggestion) => {
+    setTempCustomerMobile(s.mobile);
+    if (s.name && !tempCustomerName.trim()) setTempCustomerName(s.name);
+    setSuggestionsVisible(false);
+    setCustomerSuggestions([]);
+    onMobileBlur(s.mobile);
+  };
+
   const openCompleteModal = () => {
     if (!isValid) {
       setError("Cash + UPI must equal final amount");
@@ -455,6 +498,8 @@ export default function BillingScreen() {
     setTempCustomerMobile("");
     setTempCustomerName("");
     setTempCustomerInfo(null);
+    setCustomerSuggestions([]);
+    setSuggestionsVisible(false);
     setCustomerModalOpen(true);
   };
 
@@ -1246,8 +1291,11 @@ export default function BillingScreen() {
                 <TextInput
                   testID="customer-mobile-modal-input"
                   value={tempCustomerMobile}
-                  onChangeText={(v) => setTempCustomerMobile(v.replace(/[^0-9]/g, ""))}
+                  onChangeText={onMobileChangeText}
                   onBlur={() => onMobileBlur(tempCustomerMobile)}
+                  onFocus={() => {
+                    if (customerSuggestions.length > 0) setSuggestionsVisible(true);
+                  }}
                   keyboardType="phone-pad"
                   placeholder="10-digit mobile"
                   placeholderTextColor={theme.color.onSurfaceTertiary}
@@ -1255,6 +1303,33 @@ export default function BillingScreen() {
                   maxLength={15}
                   editable={!submitting}
                 />
+
+                {suggestionsVisible && (
+                  <View testID="customer-suggestions" style={styles.suggestionsBox}>
+                    {suggestionsLoading ? (
+                      <View style={styles.suggestionsLoadingRow}>
+                        <ActivityIndicator size="small" color={theme.color.brandPrimary} />
+                      </View>
+                    ) : customerSuggestions.length === 0 ? (
+                      <Text style={styles.suggestionsEmptyText}>No matching customers</Text>
+                    ) : (
+                      customerSuggestions.map((s) => (
+                        <Pressable
+                          key={s.mobile}
+                          testID={`customer-suggestion-${s.mobile}`}
+                          onPress={() => selectCustomerSuggestion(s)}
+                          style={styles.suggestionRow}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.suggestionName}>{s.name || "Unnamed"}</Text>
+                            <Text style={styles.suggestionMobile}>{s.mobile}</Text>
+                          </View>
+                          <Text style={styles.suggestionTotal}>{fmt(s.total_spent)}</Text>
+                        </Pressable>
+                      ))
+                    )}
+                  </View>
+                )}
 
                 {tempCustomerInfo?.is_returning && (
                   <View testID="returning-customer-badge" style={styles.returningBadge}>
@@ -1945,6 +2020,48 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   returningText: { color: theme.color.brandPrimary, fontSize: 12, fontWeight: "700" },
+  suggestionsBox: {
+    marginTop: 6,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    backgroundColor: theme.color.surface,
+    maxHeight: 220,
+    overflow: "hidden",
+  },
+  suggestionsLoadingRow: {
+    padding: theme.spacing.md,
+    alignItems: "center",
+  },
+  suggestionsEmptyText: {
+    padding: theme.spacing.md,
+    color: theme.color.onSurfaceTertiary,
+    fontSize: 13,
+  },
+  suggestionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 10,
+    borderBottomColor: theme.color.divider,
+    borderBottomWidth: 1,
+  },
+  suggestionName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.color.onSurface,
+  },
+  suggestionMobile: {
+    fontSize: 12,
+    color: theme.color.onSurfaceTertiary,
+    marginTop: 2,
+  },
+  suggestionTotal: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: theme.color.brandPrimary,
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.7)",
