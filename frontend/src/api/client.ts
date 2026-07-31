@@ -397,6 +397,40 @@ export const api = {
     return (data || []) as ExchangeHistoryEntry[];
   },
 
+  // Owner-only: fully replace a bill's line items, customer info, and
+  // payment split. Stock is reconciled atomically server-side — the old
+  // items' quantities are restored, then the new items are validated and
+  // deducted, all inside one transaction. See supabase/migration/edit_bill.sql.
+  editBill: async (body: {
+    bill_id: string;
+    customer_mobile?: string | null;
+    customer_name?: string | null;
+    items: { inv_id: string; qty: number; custom_price?: number | null }[];
+    cash_amount: number;
+    upi_amount: number;
+  }): Promise<any> => {
+    const { data, error } = await supabase.rpc("edit_bill", {
+      p_bill_id: body.bill_id,
+      p_customer_mobile: body.customer_mobile || null,
+      p_customer_name: body.customer_name || null,
+      p_items: body.items.map((i) => ({
+        inv_id: i.inv_id,
+        qty: i.qty,
+        custom_price: i.custom_price != null ? toWholeNumber(i.custom_price) : null,
+      })),
+      p_cash_amount: toWholeNumber(body.cash_amount),
+      p_upi_amount: toWholeNumber(body.upi_amount),
+    });
+    if (error) throw new Error(error.message);
+    const { data: full, error: e2 } = await supabase
+      .from("v_bills_full")
+      .select("*")
+      .eq("id", body.bill_id)
+      .single();
+    if (e2) throw new Error(e2.message);
+    return full as Bill;
+  },
+
   // Dashboard
   //
   // Owner asked to view "complete dashboard for a specific date". Optional

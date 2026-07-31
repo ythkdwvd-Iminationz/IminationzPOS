@@ -518,18 +518,32 @@ export default function SalesScreen() {
                       -{formatINRPlain(item.discount)} off
                     </Text>
                   )}
-                  <Pressable
-                    testID={`exchange-button-${item.bill_number}`}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      openExchange(item);
-                    }}
-                    style={styles.exchangeBtn}
-                    hitSlop={6}
-                  >
-                    <Ionicons name="swap-horizontal" size={13} color={theme.color.brandPrimary} />
-                    <Text style={styles.exchangeBtnText}>Exchange</Text>
-                  </Pressable>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    <Pressable
+                      testID={`edit-bill-button-${item.bill_number}`}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        router.push(`/edit-bill/${item.id}`);
+                      }}
+                      style={styles.editBillBtn}
+                      hitSlop={6}
+                    >
+                      <Ionicons name="create-outline" size={13} color={theme.color.onSurfaceSecondary} />
+                      <Text style={styles.editBillBtnText}>Edit</Text>
+                    </Pressable>
+                    <Pressable
+                      testID={`exchange-button-${item.bill_number}`}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        openExchange(item);
+                      }}
+                      style={styles.exchangeBtn}
+                      hitSlop={6}
+                    >
+                      <Ionicons name="swap-horizontal" size={13} color={theme.color.brandPrimary} />
+                      <Text style={styles.exchangeBtnText}>Exchange</Text>
+                    </Pressable>
+                  </View>
                 </View>
               )}
             </Pressable>
@@ -1204,6 +1218,21 @@ const styles = StyleSheet.create({
   },
   exchangeBtnText: {
     color: theme.color.brandPrimary,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  editBillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  editBillBtnText: {
+    color: theme.color.onSurfaceSecondary,
     fontSize: 11,
     fontWeight: "700",
   },
