@@ -15,7 +15,7 @@ import * as Linking from "expo-linking";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, InventoryItem, CustomerInfo, CustomerSuggestion, logout, settingsApi, BillingConfig, DiscountType, whatsappApi } from "@/src/api/client";
+import { api, InventoryItem, CustomerInfo, CustomerSuggestion, logout, settingsApi, BillingConfig, DiscountType, whatsappApi, LOW_STOCK_THRESHOLD } from "@/src/api/client";
 import { getInventory, peekInventory, invalidateInventory } from "@/src/api/cache";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useDraftBilling } from "@/src/draft/useDraftBilling";
@@ -919,7 +919,7 @@ export default function BillingScreen() {
                           <Text
                             style={{
                               color:
-                                l.inv.current_qty <= 5
+                                l.inv.current_qty <= LOW_STOCK_THRESHOLD
                                   ? theme.color.error
                                   : theme.color.success,
                               fontWeight: "700",
@@ -1222,7 +1222,7 @@ export default function BillingScreen() {
                             styles.itemCardStock,
                             {
                               backgroundColor:
-                                item.current_qty <= 5
+                                item.current_qty <= LOW_STOCK_THRESHOLD
                                   ? theme.color.error
                                   : theme.color.success,
                             },

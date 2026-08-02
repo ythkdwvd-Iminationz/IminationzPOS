@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
-import { api, InventoryItem } from "@/src/api/client";
+import { api, InventoryItem, LOW_STOCK_THRESHOLD } from "@/src/api/client";
 import { getInventory, peekInventory, invalidateInventory } from "@/src/api/cache";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useFormDraft } from "@/src/draft/useFormDraft";
@@ -228,7 +228,7 @@ export default function InventoryScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Inventory</Text>
-          <Text style={styles.subtitle}>{items.length} items · {items.filter((i) => i.current_qty <= 5).length} low stock</Text>
+          <Text style={styles.subtitle}>{items.length} items · {items.filter((i) => i.current_qty <= LOW_STOCK_THRESHOLD).length} low stock</Text>
         </View>
         <Pressable testID="add-inventory-button" onPress={openCreate} style={styles.addBtn}>
           <Ionicons name="add" size={22} color={theme.color.onBrandPrimary} />
@@ -303,7 +303,7 @@ export default function InventoryScreen() {
             </View>
           }
           renderItem={({ item }) => {
-            const low = item.current_qty <= 5;
+            const low = item.current_qty <= LOW_STOCK_THRESHOLD;
             return (
               <View testID={`inv-row-${item.item_id}`} style={styles.row}>
                 <View style={{ flex: 1 }}>

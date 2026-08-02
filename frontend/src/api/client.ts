@@ -2,6 +2,10 @@ import { supabase } from "./supabase";
 
 export const OWNER_WHATSAPP_NUMBERS = ["9044625875", "8188996721"];
 export const STORE_NAME = "Iminationz";
+// Items at or below this current_qty are flagged as low stock everywhere
+// in the app (dashboard, reports, billing, inventory, exports).
+export const LOW_STOCK_THRESHOLD = 20;
+
 
 // ---------- Types ----------
 export interface InventoryItem {
@@ -456,7 +460,7 @@ export const api = {
     );
     const discount_given = toWholeNumber(sum(list, (b) => Number(b.discount)));
     const total_inventory_qty = (inv || []).reduce((a, i) => a + Number(i.current_qty), 0);
-    const low_stock_count = (inv || []).filter((i) => Number(i.current_qty) <= 5).length;
+    const low_stock_count = (inv || []).filter((i) => Number(i.current_qty) <= LOW_STOCK_THRESHOLD).length;
     return {
       date: target,
       total_sales,
@@ -506,7 +510,7 @@ export const api = {
     const total_opening = items.reduce((s, i) => s + i.opening_qty, 0);
     const total_current = items.reduce((s, i) => s + i.current_qty, 0);
     const total_sold = items.reduce((s, i) => s + i.sold_qty, 0);
-    const low_stock = items.filter((i) => i.current_qty <= 5);
+    const low_stock = items.filter((i) => i.current_qty <= LOW_STOCK_THRESHOLD);
     return {
       items,
       summary: { total_opening, total_current, total_sold, low_stock_count: low_stock.length },

@@ -1,7 +1,7 @@
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
-import { api, Bill, InventoryItem } from "@/src/api/client";
+import { api, Bill, InventoryItem, LOW_STOCK_THRESHOLD } from "@/src/api/client";
 
 const todayStamp = () =>
   new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14);
@@ -150,7 +150,7 @@ function inventoryRows(items: InventoryItem[]) {
     header,
     ...items.map((i) => [
       i.item_id, i.category, i.item_name, i.price, i.cost_price,
-      i.opening_qty, i.current_qty, i.sold_qty, i.current_qty <= 5 ? "YES" : "",
+      i.opening_qty, i.current_qty, i.sold_qty, i.current_qty <= LOW_STOCK_THRESHOLD ? "YES" : "",
     ]),
   ];
 }
