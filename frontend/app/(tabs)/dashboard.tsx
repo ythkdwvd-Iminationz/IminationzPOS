@@ -53,6 +53,10 @@ export default function DashboardScreen() {
   const [selectedDate, setSelectedDate] = useState<string>(todayISO());
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const isToday = selectedDate === todayISO();
+  // Amounts start hidden every time the app opens; tap the eye to reveal.
+  const [amountsVisible, setAmountsVisible] = useState(false);
+  const maskedAmount = "••••••";
+  const displayAmount = (n: number) => (amountsVisible ? formatINRPlain(n) : maskedAmount);
 
   const load = useCallback(
     async (dateOverride?: string) => {
@@ -109,6 +113,20 @@ export default function DashboardScreen() {
                 : `Selected day · ${data?.date || selectedDate}`}
           </Text>
         </View>
+        {!isEmployee && (
+          <Pressable
+            testID="toggle-amounts-visibility"
+            onPress={() => setAmountsVisible((v) => !v)}
+            style={styles.logoutBtn}
+            hitSlop={6}
+          >
+            <Ionicons
+              name={amountsVisible ? "eye-outline" : "eye-off-outline"}
+              size={22}
+              color={theme.color.onSurface}
+            />
+          </Pressable>
+        )}
         <Pressable testID="logout-button" onPress={onLogout} style={styles.logoutBtn}>
           <Ionicons name="log-out-outline" size={22} color={theme.color.onSurface} />
         </Pressable>
@@ -242,7 +260,7 @@ export default function DashboardScreen() {
                 <Text style={styles.heroLabel}>
                   {isToday ? "Todays Sales" : "Day's Sales"}
                 </Text>
-                <Text style={styles.heroValue}>{formatINRPlain(data?.total_sales || 0)}</Text>
+                <Text style={styles.heroValue}>{displayAmount(data?.total_sales || 0)}</Text>
                 <View style={styles.heroRow}>
                   <View style={styles.heroPill}>
                     <Ionicons name="receipt-outline" size={14} color={theme.color.brandPrimary} />
@@ -250,7 +268,7 @@ export default function DashboardScreen() {
                   </View>
                   <View style={styles.heroPill}>
                     <Ionicons name="pricetag-outline" size={14} color={theme.color.brandPrimary} />
-                    <Text style={styles.heroPillText}>Avg {formatINRPlain(data?.average_bill_value || 0)}</Text>
+                    <Text style={styles.heroPillText}>Avg {displayAmount(data?.average_bill_value || 0)}</Text>
                   </View>
                 </View>
               </View>
@@ -260,13 +278,13 @@ export default function DashboardScreen() {
                   testID="kpi-cash"
                   icon="cash-outline"
                   label="Cash"
-                  value={formatINRPlain(data?.total_cash || 0)}
+                  value={displayAmount(data?.total_cash || 0)}
                 />
                 <KpiCard
                   testID="kpi-upi"
                   icon="phone-portrait-outline"
                   label="UPI"
-                  value={formatINRPlain(data?.total_upi || 0)}
+                  value={displayAmount(data?.total_upi || 0)}
                 />
                 <KpiCard
                   testID="kpi-items-sold"
@@ -278,7 +296,7 @@ export default function DashboardScreen() {
                   testID="kpi-discount"
                   icon="ribbon-outline"
                   label="Discount"
-                  value={formatINRPlain(data?.discount_given || 0)}
+                  value={displayAmount(data?.discount_given || 0)}
                 />
                 <KpiCard
                   testID="kpi-inventory"
