@@ -59,6 +59,10 @@ export default function SalesScreen() {
   const router = useRouter();
   const { role } = useRole();
   const isEmployee = role === "employee";
+  // Amounts start hidden every time the tab/app opens; tap the eye to reveal.
+  const [amountsVisible, setAmountsVisible] = useState(false);
+  const maskedAmount = "••••••";
+  const displayAmount = (n: number) => (amountsVisible ? formatINRPlain(n) : maskedAmount);
 
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -245,9 +249,23 @@ export default function SalesScreen() {
           <Text style={styles.subtitle}>
             {isEmployee
               ? `${bills.length} bills`
-              : `${bills.length} bills · ${formatINRPlain(totals.sales)}`}
+              : `${bills.length} bills · ${displayAmount(totals.sales)}`}
           </Text>
         </View>
+        {!isEmployee && (
+          <Pressable
+            testID="sales-toggle-amounts"
+            onPress={() => setAmountsVisible((v) => !v)}
+            style={styles.waHeaderBtn}
+            hitSlop={8}
+          >
+            <Ionicons
+              name={amountsVisible ? "eye-outline" : "eye-off-outline"}
+              size={20}
+              color={theme.color.onSurface}
+            />
+          </Pressable>
+        )}
         {!isEmployee && (
           <Pressable
             testID="sales-wa-contacts"
@@ -280,7 +298,7 @@ export default function SalesScreen() {
                       testID="sales-current-month-revenue"
                       style={styles.monthSummaryValue}
                     >
-                      {formatINRPlain(monthSummary.currentMonthRevenue)}
+                      {displayAmount(monthSummary.currentMonthRevenue)}
                     </Text>
                   </View>
                   <View style={styles.monthSummaryDivider} />
@@ -290,7 +308,7 @@ export default function SalesScreen() {
                       testID="sales-last-month-revenue"
                       style={styles.monthSummaryValue}
                     >
-                      {formatINRPlain(monthSummary.lastMonthRevenue)}
+                      {displayAmount(monthSummary.lastMonthRevenue)}
                     </Text>
                   </View>
                 </View>
@@ -313,7 +331,7 @@ export default function SalesScreen() {
                   <View style={styles.monthSummaryCol}>
                     <Text style={styles.monthSummaryLabel}>Avg / Day</Text>
                     <Text testID="sales-avg-per-day" style={styles.monthSummaryValue}>
-                      {formatINRPlain(monthSummary.avgPerDay)}
+                      {displayAmount(monthSummary.avgPerDay)}
                     </Text>
                   </View>
                 </View>
@@ -331,7 +349,7 @@ export default function SalesScreen() {
                 <View style={styles.onePctBox}>
                   <Text style={styles.onePctLabel}>1% of Last Month's Revenue</Text>
                   <Text testID="sales-last-month-one-pct" style={styles.onePctValue}>
-                    {formatINRPlain(monthSummary.lastMonthOnePct)}
+                    {displayAmount(monthSummary.lastMonthOnePct)}
                   </Text>
                 </View>
               </>
@@ -472,8 +490,8 @@ export default function SalesScreen() {
                   <>
                     <Text style={styles.meta}>
                       Mobile: {item.customer_mobile || "—"} · Cash{" "}
-                      {formatINRPlain(item.cash_amount)} · UPI{" "}
-                      {formatINRPlain(item.upi_amount)}
+                      {displayAmount(item.cash_amount)} · UPI{" "}
+                      {displayAmount(item.upi_amount)}
                     </Text>
                     {item.created_by_role && (
                       <View style={styles.creatorRow} testID={`bill-creator-${item.bill_number}`}>
@@ -511,11 +529,11 @@ export default function SalesScreen() {
               {!isEmployee && (
                 <View style={{ alignItems: "flex-end", gap: 6 }}>
                   <Text style={styles.amount}>
-                    {formatINRPlain(item.final_amount)}
+                    {displayAmount(item.final_amount)}
                   </Text>
                   {item.discount > 0 && (
                     <Text style={styles.discount}>
-                      -{formatINRPlain(item.discount)} off
+                      -{displayAmount(item.discount)} off
                     </Text>
                   )}
                   <View style={{ flexDirection: "row", gap: 6 }}>
