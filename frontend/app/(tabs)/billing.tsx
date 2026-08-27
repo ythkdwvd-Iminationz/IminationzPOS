@@ -40,6 +40,10 @@ const CFG_DRAFT_KEY = "iminationz:billing:cfgDraft:v1";
 
 // Modified: Force whole integer formatting globally
 const fmt = (n: number) => formatINRPlain(Math.round(n));
+const todayISODate = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 interface CartLine {
   inv: InventoryItem;
@@ -92,6 +96,8 @@ export default function BillingScreen() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsVisible, setSuggestionsVisible] = useState(false);
   const suggestionsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [billDate, setBillDate] = useState(todayISODate());
+  const [dateEditorOpen, setDateEditorOpen] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -500,6 +506,7 @@ export default function BillingScreen() {
     setTempCustomerInfo(null);
     setCustomerSuggestions([]);
     setSuggestionsVisible(false);
+    setBillDate(todayISODate());
     setCustomerModalOpen(true);
   };
 
@@ -524,6 +531,7 @@ export default function BillingScreen() {
         customer_name: nameValue || null,
         cash_amount: parseInt(cashAmount, 10) || 0,
         upi_amount: parseInt(upiAmount, 10) || 0,
+        bill_date: isOwner && billDate !== todayISODate() ? billDate : null,
         items: cart.map((l) => ({
           inv_id: l.inv.id,
           item_id: l.inv.item_id,
@@ -1287,7 +1295,82 @@ export default function BillingScreen() {
               </View>
 
               <View style={styles.customerModalBody}>
-                <Text style={styles.label}>Mobile Number (optional)</Text>
+                {isOwner && (
+                  <>
+                    <View style={styles.billDateRow}>
+                      <View>
+                        <Text style={styles.label}>Bill Date</Text>
+                        <Text testID="bill-date-value" style={styles.billDateValue}>
+                          {billDate === todayISODate()
+                            ? "Today"
+                            : new Date(billDate + "T00:00:00").toLocaleDateString("en-IN", {
+                                weekday: "short",
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                        </Text>
+                      </View>
+                      <Pressable
+                        testID="bill-date-change"
+                        onPress={() => setDateEditorOpen((v) => !v)}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.billDateChangeText}>
+                          {dateEditorOpen ? "Close" : "Change"}
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    {dateEditorOpen && (
+                      <View style={styles.billDateEditor}>
+                        <Pressable
+                          testID="bill-date-minus"
+                          onPress={() => {
+                            const d = new Date(billDate + "T00:00:00");
+                            d.setDate(d.getDate() - 1);
+                            setBillDate(
+                              `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+                            );
+                          }}
+                          style={styles.billDateStepBtn}
+                        >
+                          <Text style={styles.billDateStepText}>-1 day</Text>
+                        </Pressable>
+                        <TextInput
+                          testID="bill-date-input"
+                          value={billDate}
+                          onChangeText={setBillDate}
+                          placeholder="YYYY-MM-DD"
+                          placeholderTextColor={theme.color.onSurfaceTertiary}
+                          style={[styles.input, { flex: 1, textAlign: "center" }]}
+                        />
+                        <Pressable
+                          testID="bill-date-plus"
+                          onPress={() => {
+                            const d = new Date(billDate + "T00:00:00");
+                            const today = todayISODate();
+                            d.setDate(d.getDate() + 1);
+                            const next = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                            if (next <= today) setBillDate(next);
+                          }}
+                          style={styles.billDateStepBtn}
+                        >
+                          <Text style={styles.billDateStepText}>+1 day</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                    {billDate > todayISODate() && (
+                      <Text testID="bill-date-future-error" style={styles.billDateError}>
+                        Bill date can't be in the future
+                      </Text>
+                    )}
+                  </>
+                )}
+
+                <Text style={[styles.label, { marginTop: isOwner ? theme.spacing.md : 0 }]}>
+                  Mobile Number (optional)
+                </Text>
                 <TextInput
                   testID="customer-mobile-modal-input"
                   value={tempCustomerMobile}
@@ -1380,7 +1463,7 @@ export default function BillingScreen() {
                 <Pressable style={[styles.cancelBtn, submitting && { opacity: 0.5 }]} onPress={() => setCustomerModalOpen(false)} disabled={submitting}>
                   <Text style={styles.cancelBtnText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={[styles.submitBtn, (!isValid || submitting) && { opacity: 0.5 }]} onPress={submit} disabled={!isValid || submitting}>
+                <Pressable style={[styles.submitBtn, (!isValid || submitting || billDate > todayISODate()) && { opacity: 0.5 }]} onPress={submit} disabled={!isValid || submitting || billDate > todayISODate()}>
                   {submitting ? (
                     <ActivityIndicator color={theme.color.onBrandPrimary} />
                   ) : (
@@ -1716,6 +1799,45 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     color: theme.color.onSurface,
     fontSize: 16,
+  },
+  billDateRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+  },
+  billDateValue: {
+    color: theme.color.onSurface,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  billDateChangeText: {
+    color: theme.color.brandPrimary,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  billDateEditor: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.sm,
+  },
+  billDateStepBtn: {
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  billDateStepText: {
+    color: theme.color.onSurfaceSecondary,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  billDateError: {
+    color: theme.color.error,
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 6,
   },
   addItemBtn: {
     flexDirection: "row",

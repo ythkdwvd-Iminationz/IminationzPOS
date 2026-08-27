@@ -321,6 +321,7 @@ export const api = {
     cash_amount: number;
     upi_amount: number;
     items: { inv_id: string; qty: number; custom_price?: number | null }[];
+    bill_date?: string | null; // YYYY-MM-DD; omit/null = today
   }): Promise<Bill> => {
     const { data, error } = await supabase.rpc("create_bill", {
       p_customer_mobile: body.customer_mobile || null,
@@ -332,6 +333,7 @@ export const api = {
       })),
       p_cash_amount: toWholeNumber(body.cash_amount),
       p_upi_amount: toWholeNumber(body.upi_amount),
+      p_bill_date: body.bill_date || null,
     });
     if (error) throw new Error(error.message);
     const { data: full, error: e2 } = await supabase
