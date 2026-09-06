@@ -14,16 +14,17 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   getSession,
-  fetchMyRole,
   requestLoginOtp,
   verifyLoginOtp,
 } from "@/src/api/client";
 import { theme } from "@/src/theme";
+import { useRole } from "@/src/hooks/use-role";
 
 type Step = "email" | "otp";
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { role, loading: roleLoading } = useRole();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
@@ -31,20 +32,27 @@ export default function LoginScreen() {
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [hasSession, setHasSession] = useState(false);
 
   useEffect(() => {
     (async () => {
       const s = await getSession();
       if (s) {
-        const role = await fetchMyRole();
-        router.replace(
-          role === "employee" ? "/(tabs)/billing" : "/(tabs)/dashboard"
-        );
+        setHasSession(true);
+        // Role comes from RoleProvider (already fetching it once at app
+        // start) rather than re-querying it here — avoids doing the same
+        // session+role round trip twice on every cold launch.
       } else {
         setChecking(false);
       }
     })();
-  }, [router]);
+  }, []);
+
+  useEffect(() => {
+    if (hasSession && !roleLoading && role) {
+      router.replace(role === "employee" ? "/(tabs)/billing" : "/(tabs)/dashboard");
+    }
+  }, [hasSession, roleLoading, role, router]);
 
   const startCooldown = () => {
     setResendCooldown(30);
@@ -87,10 +95,10 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await verifyLoginOtp(email.trim().toLowerCase(), otp.trim());
-      const role = await fetchMyRole();
-      router.replace(
-        role === "employee" ? "/(tabs)/billing" : "/(tabs)/dashboard"
-      );
+      // RoleProvider's own auth-state listener picks this up and refreshes
+      // role; the useEffect above navigates once it resolves. Avoids a
+      // second redundant session+role round trip right after the first.
+      setHasSession(true);
     } catch (e: any) {
       setError(e.message || "Invalid or expired code");
     } finally {

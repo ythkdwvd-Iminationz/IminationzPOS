@@ -210,14 +210,13 @@ export async function fetchMyRole(): Promise<Role> {
   const email = session?.user?.email?.toLowerCase().trim();
   if (!email) return "owner";
 
-  const probe = await supabase.from("user_roles").select("email,role").limit(50);
+  // Filter server-side by email instead of pulling up to 50 rows and
+  // searching client-side — faster and doesn't grow slower as the
+  // user_roles table grows.
+  const probe = await supabase.from("user_roles").select("role").ilike("email", email).limit(1).maybeSingle();
   if (probe.error) return "owner";
-
-  const myRow = (probe.data || []).find(
-    (r: any) => String(r.email).toLowerCase().trim() === email
-  );
-  if (!myRow) return "employee";
-  return (myRow.role as Role) || "employee";
+  if (!probe.data) return "employee";
+  return (probe.data.role as Role) || "employee";
 }
 
 export async function login(email: string, password: string) {
