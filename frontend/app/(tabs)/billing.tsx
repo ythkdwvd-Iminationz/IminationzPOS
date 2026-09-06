@@ -20,6 +20,7 @@ import { getInventory, peekInventory, invalidateInventory } from "@/src/api/cach
 import { theme, formatINRPlain } from "@/src/theme";
 import { useDraftBilling } from "@/src/draft/useDraftBilling";
 import { DraftCartLine } from "@/src/draft/draftBillingStorage";
+import { parkedBillsStorage, ParkedBillRecord } from "@/src/draft/parkedBillsStorage";
 import { useFormDraft } from "@/src/draft/useFormDraft";
 import { useRole } from "@/src/hooks/use-role";
 
@@ -61,6 +62,44 @@ export default function BillingScreen() {
   const [inventory, setInventory] = useState<InventoryItem[]>(() => peekInventory() || []);
   const [loading, setLoading] = useState(() => peekInventory() === null);
   const [cart, setCart] = useState<CartLine[]>([]);
+
+  // Parked bills: lets the owner/employee stash the current in-progress
+  // cart (e.g. Customer A is still deciding) and start a fresh bill for
+  // another customer, then come back and resume where they left off.
+  // Persisted to AsyncStorage (parkedBillsStorage) so parked bills survive
+  // an app crash/kill the same way the single active draft already does —
+  // loaded once on mount, and the whole list is rewritten on every change.
+  interface ParkedBill {
+    id: string;
+    label: string;
+    parkedAt: number;
+    cart: CartLine[];
+    customerMobile: string;
+    customerName: string;
+    customerInfo: CustomerInfo | null;
+    cashAmount: string;
+    upiAmount: string;
+  }
+  const [parkedBills, setParkedBills] = useState<ParkedBill[]>([]);
+  const [parkedListOpen, setParkedListOpen] = useState(false);
+  const [parkedBillsHydrated, setParkedBillsHydrated] = useState(false);
+
+  // Load once on mount.
+  useEffect(() => {
+    (async () => {
+      const loaded = await parkedBillsStorage.load();
+      setParkedBills(loaded as ParkedBill[]);
+      setParkedBillsHydrated(true);
+    })();
+  }, []);
+
+  // Persist on every change, once the initial load has completed (so we
+  // never overwrite the on-disk list with an empty array before it's
+  // actually been read).
+  useEffect(() => {
+    if (!parkedBillsHydrated) return;
+    parkedBillsStorage.save(parkedBills as ParkedBillRecord[]);
+  }, [parkedBills, parkedBillsHydrated]);
   const [customerMobile, setCustomerMobile] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null);
@@ -446,6 +485,53 @@ export default function BillingScreen() {
     draft.clearDraft();
   };
 
+  const parkCurrentBill = () => {
+    if (cart.length === 0) return;
+    const label =
+      customerName.trim() ||
+      tempCustomerName.trim() ||
+      customerMobile.trim() ||
+      tempCustomerMobile.trim() ||
+      `Bill ${parkedBills.length + 1}`;
+    setParkedBills((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        label,
+        parkedAt: Date.now(),
+        cart,
+        customerMobile,
+        customerName,
+        customerInfo,
+        cashAmount,
+        upiAmount,
+      },
+    ]);
+    reset();
+  };
+
+  const resumeParkedBill = (id: string) => {
+    const parked = parkedBills.find((p) => p.id === id);
+    if (!parked) return;
+    // If there's an unparked in-progress cart right now, park it first so
+    // resuming one bill never silently discards another.
+    if (cart.length > 0) {
+      parkCurrentBill();
+    }
+    setCart(parked.cart);
+    setCustomerMobile(parked.customerMobile);
+    setCustomerName(parked.customerName);
+    setCustomerInfo(parked.customerInfo);
+    setCashAmount(parked.cashAmount);
+    setUpiAmount(parked.upiAmount);
+    setParkedBills((prev) => prev.filter((p) => p.id !== id));
+    setParkedListOpen(false);
+  };
+
+  const discardParkedBill = (id: string) => {
+    setParkedBills((prev) => prev.filter((p) => p.id !== id));
+  };
+
   const onMobileBlur = async (mobile: string) => {
     const cleanMobile = mobile.trim();
     if (!cleanMobile || cleanMobile.length < 6) {
@@ -678,6 +764,21 @@ export default function BillingScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>New Bill</Text>
           <View style={styles.headerBtns}>
+            {parkedBills.length > 0 && (
+              <Pressable
+                testID="parked-bills-button"
+                onPress={() => setParkedListOpen(true)}
+                style={styles.parkedBadgeBtn}
+              >
+                <Ionicons name="albums-outline" size={16} color={theme.color.brandPrimary} />
+                <Text style={styles.parkedBadgeText}>{parkedBills.length}</Text>
+              </Pressable>
+            )}
+            {cart.length > 0 && (
+              <Pressable testID="park-bill-button" onPress={parkCurrentBill} style={styles.resetBtn}>
+                <Ionicons name="bookmark-outline" size={18} color={theme.color.onSurface} />
+              </Pressable>
+            )}
             {isOwner && (
               <Pressable
                 testID="billing-config-button"
@@ -1627,6 +1728,70 @@ export default function BillingScreen() {
             </KeyboardAvoidingView>
           </Modal>
         )}
+
+        <Modal
+          visible={parkedListOpen}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setParkedListOpen(false)}
+        >
+          <View style={styles.cartSheetBackdrop}>
+            <View style={styles.cartSheetContent}>
+              <View style={styles.cartSheetHandle} />
+              <View style={styles.cartSheetHeader}>
+                <Text style={styles.cartSheetTitle}>
+                  Parked Bills · {parkedBills.length}
+                </Text>
+                <Pressable testID="parked-bills-close" onPress={() => setParkedListOpen(false)} hitSlop={8}>
+                  <Ionicons name="close" size={22} color={theme.color.onSurfaceTertiary} />
+                </Pressable>
+              </View>
+
+              {parkedBills.length === 0 ? (
+                <View style={styles.centerContent}>
+                  <Ionicons name="albums-outline" size={32} color={theme.color.onSurfaceTertiary} />
+                  <Text style={styles.emptyText}>No parked bills</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={parkedBills}
+                  keyExtractor={(p) => p.id}
+                  contentContainerStyle={styles.itemsListContent}
+                  renderItem={({ item: p }) => {
+                    const total = p.cart.reduce(
+                      (s, l) => s + effectivePrice(l) * l.qty,
+                      0
+                    );
+                    return (
+                      <Pressable
+                        testID={`parked-bill-${p.id}`}
+                        onPress={() => resumeParkedBill(p.id)}
+                        style={styles.parkedRow}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.parkedRowLabel}>{p.label}</Text>
+                          <Text style={styles.parkedRowSub}>
+                            {p.cart.length} item{p.cart.length === 1 ? "" : "s"} · {fmt(total)}
+                          </Text>
+                        </View>
+                        <Pressable
+                          testID={`parked-bill-discard-${p.id}`}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            discardParkedBill(p.id);
+                          }}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={theme.color.error} />
+                        </Pressable>
+                      </Pressable>
+                    );
+                  }}
+                />
+              )}
+            </View>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1654,6 +1819,40 @@ const styles = StyleSheet.create({
     backgroundColor: theme.color.surfaceSecondary,
     alignItems: "center",
     justifyContent: "center",
+  },
+  parkedBadgeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: theme.color.brandTertiary,
+    borderColor: theme.color.brandPrimary,
+    borderWidth: 1,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 10,
+    height: 40,
+  },
+  parkedBadgeText: {
+    color: theme.color.brandPrimary,
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  parkedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    borderBottomColor: theme.color.divider,
+    borderBottomWidth: 1,
+  },
+  parkedRowLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.color.onSurface,
+  },
+  parkedRowSub: {
+    fontSize: 12,
+    color: theme.color.onSurfaceTertiary,
+    marginTop: 2,
   },
   draftBanner: {
     flexDirection: "row",
