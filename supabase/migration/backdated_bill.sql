@@ -17,6 +17,13 @@
 
 BEGIN;
 
+-- CREATE OR REPLACE does not remove an old signature when the parameter
+-- list changes — it adds a new overload alongside it, which makes
+-- PostgREST/Postgres unable to pick a candidate when a caller doesn't name
+-- every argument ("Could not choose the best candidate function..."). Drop
+-- the old 5-param signature explicitly before creating the 6-param one.
+DROP FUNCTION IF EXISTS public.create_bill(text, text, jsonb, numeric, numeric);
+
 CREATE OR REPLACE FUNCTION public.create_bill(
   p_customer_mobile text,
   p_customer_name   text,
