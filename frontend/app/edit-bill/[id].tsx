@@ -11,12 +11,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { api, Bill, InventoryItem } from "@/src/api/client";
+import { api, Bill, InventoryItem, settingsApi, BillingConfig } from "@/src/api/client";
 import { getInventory } from "@/src/api/cache";
 import { theme, formatINRPlain } from "@/src/theme";
 import { useRole } from "@/src/hooks/use-role";
 
 const fmt = (n: number) => formatINRPlain(Math.round(n));
+const DEFAULT_CFG: BillingConfig = { discount_type: "percent", discount_value: 10, discount_min_order: 699 };
 
 interface EditLine {
   invId: string;
@@ -24,6 +25,7 @@ interface EditLine {
   itemName: string;
   price: number; // effective price used for this line (may be a custom override)
   originalPrice: number; // inventory's current price, for reference/reset
+  isCustomPrice: boolean; // true if price differs from catalog — excluded from discount base
   qty: number;
   // Stock available to allocate to THIS line, already accounting for the
   // fact that this bill previously held some qty of this same item (which
@@ -48,15 +50,21 @@ export default function EditBillScreen() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [billingCfg, setBillingCfg] = useState<BillingConfig>(DEFAULT_CFG);
 
   useEffect(() => {
     (async () => {
       if (!id) return;
       setLoading(true);
       try {
-        const [b, inv] = await Promise.all([api.getBill(id), getInventory()]);
+        const [b, inv, cfg] = await Promise.all([
+          api.getBill(id),
+          getInventory(),
+          settingsApi.getBillingConfig().catch(() => DEFAULT_CFG),
+        ]);
         setBill(b);
         setInventory(inv);
+        setBillingCfg(cfg);
         setCustomerMobile(b.customer_mobile || "");
         setCustomerName(b.customer_name || "");
         setCashAmount(String(Math.round(b.cash_amount)));
@@ -75,6 +83,7 @@ export default function EditBillScreen() {
             itemName: bi.item_name,
             price: bi.price,
             originalPrice: invItem ? invItem.price : bi.price,
+            isCustomPrice: !!bi.is_custom_price,
             qty: bi.qty,
             availableForLine: currentStock + bi.qty,
           };
@@ -88,7 +97,30 @@ export default function EditBillScreen() {
     })();
   }, [id]);
 
-  const gross = useMemo(() => lines.reduce((s, l) => s + l.price * l.qty, 0), [lines]);
+  const { gross, discount, finalAmount } = useMemo(() => {
+    let autoSubtotal = 0;
+    let customSubtotal = 0;
+    lines.forEach((l) => {
+      const lineTotal = Math.round(l.price * l.qty);
+      if (l.isCustomPrice) customSubtotal += lineTotal;
+      else autoSubtotal += lineTotal;
+    });
+    autoSubtotal = Math.round(autoSubtotal);
+    customSubtotal = Math.round(customSubtotal);
+    const gross = autoSubtotal + customSubtotal;
+    let discount = 0;
+    // Custom-priced items are excluded from the automatic discount, same
+    // rule the billing screen and create_bill()/edit_bill() RPCs use.
+    if (autoSubtotal > billingCfg.discount_min_order) {
+      if (billingCfg.discount_type === "flat") {
+        discount = Math.min(Math.round(billingCfg.discount_value), autoSubtotal);
+      } else {
+        discount = Math.round(autoSubtotal * (billingCfg.discount_value / 100));
+      }
+    }
+    const finalAmount = Math.round(gross - discount);
+    return { gross, discount, finalAmount };
+  }, [lines, billingCfg]);
   const cashNum = parseInt(cashAmount, 10) || 0;
   const upiNum = parseInt(upiAmount, 10) || 0;
   const paid = cashNum + upiNum;
@@ -127,6 +159,7 @@ export default function EditBillScreen() {
           itemName: inv.item_name,
           price: inv.price,
           originalPrice: inv.price,
+          isCustomPrice: false,
           qty: 1,
           availableForLine: inv.current_qty,
         },
@@ -158,7 +191,7 @@ export default function EditBillScreen() {
     setLines((prev) => prev.filter((l) => l.invId !== invId));
   };
 
-  const isValid = lines.length > 0 && paid === gross && gross >= 0;
+  const isValid = lines.length > 0 && paid === finalAmount && finalAmount >= 0;
 
   const handleSave = async () => {
     if (!bill) return;
@@ -166,8 +199,8 @@ export default function EditBillScreen() {
       setError("Bill must have at least one item");
       return;
     }
-    if (paid !== gross) {
-      setError(`Cash + UPI (${fmt(paid)}) must equal Total (${fmt(gross)})`);
+    if (paid !== finalAmount) {
+      setError(`Cash + UPI (${fmt(paid)}) must equal Final Amount (${fmt(finalAmount)})`);
       return;
     }
     setError(null);
@@ -180,7 +213,7 @@ export default function EditBillScreen() {
         items: lines.map((l) => ({
           inv_id: l.invId,
           qty: l.qty,
-          custom_price: l.price !== l.originalPrice ? l.price : null,
+          custom_price: l.isCustomPrice ? l.price : null,
         })),
         cash_amount: cashNum,
         upi_amount: upiNum,
@@ -331,8 +364,20 @@ export default function EditBillScreen() {
 
         <View style={styles.summaryBox}>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total</Text>
-            <Text style={styles.summaryValue}>{fmt(gross)}</Text>
+            <Text style={styles.summaryLabel}>Gross</Text>
+            <Text style={styles.summaryValueSmall}>{fmt(gross)}</Text>
+          </View>
+          {discount > 0 && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Discount</Text>
+              <Text style={[styles.summaryValueSmall, { color: theme.color.success }]}>
+                -{fmt(discount)}
+              </Text>
+            </View>
+          )}
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Final Amount</Text>
+            <Text testID="edit-bill-final" style={styles.summaryValue}>{fmt(finalAmount)}</Text>
           </View>
 
           <View style={{ flexDirection: "row", gap: theme.spacing.sm, marginTop: theme.spacing.sm }}>
@@ -363,7 +408,7 @@ export default function EditBillScreen() {
             <Text
               style={[
                 styles.summaryValue,
-                { color: paid === gross ? theme.color.success : theme.color.error },
+                { color: paid === finalAmount ? theme.color.success : theme.color.error },
               ]}
             >
               {fmt(paid)}
@@ -489,6 +534,7 @@ const styles = StyleSheet.create({
   },
   summaryLabel: { fontSize: 13, fontWeight: "700", color: theme.color.onSurfaceSecondary },
   summaryValue: { fontSize: 18, fontWeight: "800", color: theme.color.onSurface },
+  summaryValueSmall: { fontSize: 14, fontWeight: "700", color: theme.color.onSurfaceSecondary },
   fieldLabel: {
     fontSize: 11,
     fontWeight: "700",

@@ -43,6 +43,8 @@ DECLARE
   v_time        text := to_char(v_now, 'HH24:MI:SS');
   v_iso         timestamptz;
   v_gross       numeric(12,0) := 0;
+  v_auto_subtotal  numeric(12,0) := 0;   -- catalog-priced lines only — discount base
+  v_custom_subtotal numeric(12,0) := 0;  -- custom-priced lines — excluded from discount
   v_discount    numeric(12,0) := 0;
   v_final       numeric(12,0);
   v_paid        numeric(12,0);
@@ -51,6 +53,7 @@ DECLARE
   v_item        jsonb;
   v_inv         public.inventory%rowtype;
   v_qty         integer;
+  v_price       numeric;
   v_line_total  numeric(12,0);
   v_normalized  jsonb := '[]'::jsonb;
   v_disc_type   text := 'percent';
@@ -86,7 +89,10 @@ BEGIN
       FROM public.app_settings WHERE key = 'discount_min_order';
   END IF;
 
-  -- Validate stock & compute gross (whole rupees at every step)
+  -- Validate stock & compute gross (whole rupees at every step).
+  -- custom_price (if provided) overrides the inventory price for that
+  -- line, and that line's total is excluded from the discount base —
+  -- matches the billing screen's own display logic.
   FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
   LOOP
     v_qty := (v_item->>'qty')::int;
@@ -100,26 +106,35 @@ BEGIN
     IF v_inv.current_qty < v_qty THEN
       RAISE EXCEPTION 'Insufficient stock for % (available %)', v_inv.item_name, v_inv.current_qty;
     END IF;
-    v_line_total := round(v_inv.price * v_qty, 0);
+    v_price := COALESCE((v_item->>'custom_price')::numeric, v_inv.price);
+    v_line_total := round(v_price * v_qty, 0);
     v_gross := v_gross + v_line_total;
+    IF v_item ? 'custom_price' AND (v_item->>'custom_price') IS NOT NULL THEN
+      v_custom_subtotal := v_custom_subtotal + v_line_total;
+    ELSE
+      v_auto_subtotal := v_auto_subtotal + v_line_total;
+    END IF;
     v_normalized := v_normalized || jsonb_build_object(
       'inv_id', v_inv.id,
       'item_id', v_inv.item_id,
       'item_name', v_inv.item_name,
-      'price', round(v_inv.price, 0),
+      'price', round(v_price, 0),
       'qty', v_qty,
-      'line_total', v_line_total
+      'line_total', v_line_total,
+      'is_custom_price', (v_item ? 'custom_price' AND (v_item->>'custom_price') IS NOT NULL)
     );
   END LOOP;
 
-  -- Discount rule: percent or flat, only when gross > min order
-  IF v_gross > v_disc_min THEN
+  -- Discount rule: percent or flat, only when the AUTO (catalog-priced)
+  -- subtotal exceeds min order — custom-priced lines never contribute to
+  -- or benefit from the automatic discount.
+  IF v_auto_subtotal > v_disc_min THEN
     IF lower(coalesce(v_disc_type,'percent')) = 'flat' THEN
       v_discount := round(v_disc_value, 0);
     ELSE
-      v_discount := round(v_gross * (v_disc_value / 100.0), 0);
+      v_discount := round(v_auto_subtotal * (v_disc_value / 100.0), 0);
     END IF;
-    IF v_discount > v_gross THEN v_discount := v_gross; END IF;
+    IF v_discount > v_auto_subtotal THEN v_discount := v_auto_subtotal; END IF;
   END IF;
   v_final := v_gross - v_discount;
 
@@ -161,7 +176,7 @@ BEGIN
 
   FOR v_item IN SELECT * FROM jsonb_array_elements(v_normalized)
   LOOP
-    INSERT INTO public.bill_items(bill_id, inv_id, item_id, item_name, price, qty, line_total)
+    INSERT INTO public.bill_items(bill_id, inv_id, item_id, item_name, price, qty, line_total, is_custom_price)
     VALUES (
       v_bill_id,
       (v_item->>'inv_id')::uuid,
@@ -169,7 +184,8 @@ BEGIN
       v_item->>'item_name',
       (v_item->>'price')::numeric,
       (v_item->>'qty')::int,
-      (v_item->>'line_total')::numeric
+      (v_item->>'line_total')::numeric,
+      coalesce((v_item->>'is_custom_price')::boolean, false)
     );
   END LOOP;
 
