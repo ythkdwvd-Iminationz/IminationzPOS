@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -121,6 +121,32 @@ export default function EditBillScreen() {
     const finalAmount = Math.round(gross - discount);
     return { gross, discount, finalAmount };
   }, [lines, billingCfg]);
+
+  // Keep Cash + UPI matching the current Final Amount as items/prices
+  // change, the same way the billing screen's quick-fill buttons do —
+  // except here it happens automatically rather than needing a tap, since
+  // editing is a series of small adjustments rather than one-time entry.
+  // Any change in Final Amount (from adding/removing/re-pricing items) is
+  // absorbed into Cash; UPI is left exactly as it was, since that's
+  // usually the fixed, already-received amount when editing an existing
+  // bill (a card/UPI payment already happened; cash is what's still
+  // being adjusted at the counter).
+  const prevFinalRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (loading) return; // don't reconcile against the pre-load empty-lines render
+    if (prevFinalRef.current === null) {
+      // First run once data has actually loaded — nothing to reconcile
+      // yet, just record the starting point.
+      prevFinalRef.current = finalAmount;
+      return;
+    }
+    const delta = finalAmount - prevFinalRef.current;
+    if (delta !== 0) {
+      setCashAmount((prev) => String(Math.max(0, (parseInt(prev, 10) || 0) + delta)));
+    }
+    prevFinalRef.current = finalAmount;
+  }, [finalAmount, loading]);
+
   const cashNum = parseInt(cashAmount, 10) || 0;
   const upiNum = parseInt(upiAmount, 10) || 0;
   const paid = cashNum + upiNum;
