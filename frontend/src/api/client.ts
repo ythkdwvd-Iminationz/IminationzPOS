@@ -350,20 +350,42 @@ export const api = {
     end_date?: string;
     search?: string;
   }): Promise<Bill[]> => {
-    let q = supabase.from("v_bills_full").select("*").order("iso", { ascending: false });
     const range = dateRangeForFilter(params.filter || "today", params.start_date, params.end_date);
-    if (range) q = q.gte("date", range.from).lte("date", range.to);
-    if (params.search && params.search.trim()) {
-      // Escape PostgREST .or() reserved chars ( , ) so a customer name with
-      // spaces / punctuation doesn't blow up the request.
-      const s = params.search.trim().replace(/[(),]/g, " ");
-      q = q.or(
-        `bill_number.ilike.%${s}%,customer_mobile.ilike.%${s}%,customer_name.ilike.%${s}%`
-      );
+    const search = params.search?.trim()
+      ? params.search.trim().replace(/[(),]/g, " ") // escape PostgREST .or() reserved chars
+      : null;
+
+    // Supabase/PostgREST caps a single request at 1000 rows by default
+    // (db-max-rows). "All" (and any filter with enough bills) can exceed
+    // that, so page through with .range() until a page comes back short
+    // of the page size, rather than relying on one request to return
+    // everything.
+    const PAGE_SIZE = 1000;
+    const MAX_PAGES = 50; // safety valve — 50,000 bills; raise if the business ever gets there
+    const allRows: Bill[] = [];
+    let page = 0;
+
+    while (page < MAX_PAGES) {
+      let q = supabase
+        .from("v_bills_full")
+        .select("*")
+        .order("iso", { ascending: false })
+        .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+      if (range) q = q.gte("date", range.from).lte("date", range.to);
+      if (search) {
+        q = q.or(
+          `bill_number.ilike.%${search}%,customer_mobile.ilike.%${search}%,customer_name.ilike.%${search}%`
+        );
+      }
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      const rows = (data || []) as Bill[];
+      allRows.push(...rows);
+      if (rows.length < PAGE_SIZE) break; // last page
+      page += 1;
     }
-    const { data, error } = await q;
-    if (error) throw new Error(error.message);
-    return (data || []) as Bill[];
+
+    return allRows;
   },
 
   getBill: async (id: string): Promise<Bill> => {
