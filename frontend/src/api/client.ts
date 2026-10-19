@@ -734,21 +734,47 @@ export const api = {
 };
 
 // ---------- Updated Expenses API Surface ----------
+// Fetch every row of a table/column selection, paging past PostgREST's
+// default 1000-row-per-request cap (db-max-rows). Used anywhere a total
+// needs to be computed over the whole table rather than one page of it.
+async function fetchAllRows<T>(
+  table: string,
+  select: string
+): Promise<T[]> {
+  const PAGE_SIZE = 1000;
+  const MAX_PAGES = 50; // safety valve
+  const all: T[] = [];
+  let page = 0;
+  while (page < MAX_PAGES) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(select)
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data || []) as T[];
+    all.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+    page += 1;
+  }
+  return all;
+}
+
 export const expensesApi = {
   overview: async (): Promise<ExpenseOverview> => {
-    const [salesRes, expRes, setRes] = await Promise.all([
-      supabase.from("bills").select("final_amount"),
-      supabase.from("expenses").select("amount,personal_amount,business_amount"),
+    const [salesData, expData, setRes] = await Promise.all([
+      fetchAllRows<{ final_amount: number }>("bills", "final_amount"),
+      fetchAllRows<{ amount: number; personal_amount: number; business_amount: number }>(
+        "expenses",
+        "amount,personal_amount,business_amount"
+      ),
       supabase.from("app_settings").select("value_num").eq("key", "personal_fund_total").maybeSingle(),
     ]);
-    if (salesRes.error) throw new Error(salesRes.error.message);
-    if (expRes.error) throw new Error(expRes.error.message);
     if (setRes.error && !setRes.error.message.includes("row")) throw new Error(setRes.error.message);
 
-    const business_fund_total = toWholeNumber(sum(salesRes.data || [], (b: any) => Number(b.final_amount)));
-    const personal_spent = toWholeNumber(sum(expRes.data || [], (e: any) => Number(e.personal_amount)));
-    const business_spent = toWholeNumber(sum(expRes.data || [], (e: any) => Number(e.business_amount)));
-    const total_expenses = toWholeNumber(sum(expRes.data || [], (e: any) => Number(e.amount)));
+    const business_fund_total = toWholeNumber(sum(salesData, (b: any) => Number(b.final_amount)));
+    const personal_spent = toWholeNumber(sum(expData, (e: any) => Number(e.personal_amount)));
+    const business_spent = toWholeNumber(sum(expData, (e: any) => Number(e.business_amount)));
+    const total_expenses = toWholeNumber(sum(expData, (e: any) => Number(e.amount)));
     const personal_fund_total = toWholeNumber(setRes.data?.value_num ?? 200000);
 
     return {
@@ -759,7 +785,7 @@ export const expensesApi = {
       personal_balance: toWholeNumber(personal_fund_total - personal_spent),
       business_balance: toWholeNumber(business_fund_total - business_spent),
       total_expenses,
-      entries: (expRes.data || []).length,
+      entries: expData.length,
     };
   },
 
